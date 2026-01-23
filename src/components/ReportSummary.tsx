@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Employee, Currency, CurrencyRate, SmartAttendanceReport } from '../types'
 import { useAttendance } from '../hooks/useAttendance'
 import { convertCurrency, formatCurrency } from '../utils/currency'
+import { calculateSalaryDeduction } from '../utils/salary'
 
 interface ReportSummaryProps {
   employees: Employee[]
@@ -21,10 +22,11 @@ export default function ReportSummary({
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
   const [monthlyReport, setMonthlyReport] = useState<SmartAttendanceReport | null>(null)
-  const [yearlyReport, setYearlyReport] = useState<SmartAttendanceReport | null>(null)
+  const [allEmployeeReports, setAllEmployeeReports] = useState<Map<number, SmartAttendanceReport>>(new Map())
   const [loading, setLoading] = useState(false)
+  const [loadingAll, setLoadingAll] = useState(false)
 
-  const { getSmartMonthlyReport, getSmartYearlyReport } = useAttendance()
+  const { getSmartMonthlyReport } = useAttendance()
 
   // Filter out any undefined/null employees
   const validEmployees = employees.filter((emp): emp is Employee => emp != null && emp.id != null)
@@ -40,25 +42,47 @@ export default function ReportSummary({
     async function fetchReports() {
       if (!selectedEmployee) {
         setMonthlyReport(null)
-        setYearlyReport(null)
         return
       }
 
       setLoading(true)
       try {
-        const [monthly, yearly] = await Promise.all([
-          getSmartMonthlyReport(selectedEmployee.id, selectedYear, selectedMonth),
-          getSmartYearlyReport(selectedEmployee.id, selectedYear)
-        ])
+        const monthly = await getSmartMonthlyReport(selectedEmployee.id, selectedYear, selectedMonth)
         setMonthlyReport(monthly)
-        setYearlyReport(yearly)
       } finally {
         setLoading(false)
       }
     }
 
     fetchReports()
-  }, [selectedEmployee, selectedYear, selectedMonth, getSmartMonthlyReport, getSmartYearlyReport])
+  }, [selectedEmployee, selectedYear, selectedMonth, getSmartMonthlyReport])
+
+  // Fetch reports for all employees when "All Employees" view is active
+  useEffect(() => {
+    async function fetchAllReports() {
+      if (selectedEmployee || validEmployees.length === 0) {
+        return
+      }
+
+      setLoadingAll(true)
+      try {
+        const reports = new Map<number, SmartAttendanceReport>()
+        await Promise.all(
+          validEmployees.map(async (emp) => {
+            const report = await getSmartMonthlyReport(emp.id, selectedYear, selectedMonth)
+            if (report) {
+              reports.set(emp.id, report)
+            }
+          })
+        )
+        setAllEmployeeReports(reports)
+      } finally {
+        setLoadingAll(false)
+      }
+    }
+
+    fetchAllReports()
+  }, [selectedEmployee, validEmployees, selectedYear, selectedMonth, getSmartMonthlyReport])
 
   if (validEmployees.length === 0) {
     return (
@@ -185,6 +209,27 @@ export default function ReportSummary({
                     displayCurrency
                   )}
                 </p>
+                {monthlyReport && monthlyReport.sick > 0 && monthlyReport.workdays > 0 && (
+                  <div className="mt-2 pt-2 border-t border-gray-200">
+                    {(() => {
+                      const convertedSalary = convertCurrency(selectedEmployee.salary, selectedEmployee.currency, displayCurrency, rates)
+                      const deduction = calculateSalaryDeduction(convertedSalary, monthlyReport)
+                      return (
+                        <>
+                          <p className="text-sm text-gray-500">
+                            Adjusted ({months[selectedMonth - 1]}):
+                          </p>
+                          <p className="text-lg font-semibold text-primary-600">
+                            {formatCurrency(deduction.adjustedSalary, displayCurrency)}
+                          </p>
+                          <p className="text-sm text-red-600">
+                            -{formatCurrency(deduction.deductionAmount, displayCurrency)} ({deduction.sickDays} sick day{deduction.sickDays !== 1 ? 's' : ''})
+                          </p>
+                        </>
+                      )
+                    })()}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -192,7 +237,7 @@ export default function ReportSummary({
           {loading ? (
             <div className="text-center py-8 text-gray-500">Loading reports...</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-6">
               {/* Monthly Report */}
               <div className="bg-white rounded-lg shadow p-6">
                 <h4 className="text-lg font-medium text-gray-900 mb-4">
@@ -222,41 +267,33 @@ export default function ReportSummary({
                         <span className="font-medium">{monthlyReport.workdays}</span>
                       </div>
                     </div>
-                  </>
-                ) : (
-                  <p className="text-gray-500 text-center py-4">No workdays in this period</p>
-                )}
-              </div>
 
-              {/* Yearly Report */}
-              <div className="bg-white rounded-lg shadow p-6">
-                <h4 className="text-lg font-medium text-gray-900 mb-4">
-                  Year {selectedYear} Summary
-                </h4>
-
-                {yearlyReport && yearlyReport.workdays > 0 ? (
-                  <>
-                    {renderAttendanceBar(yearlyReport)}
-                    <div className="mt-4 grid grid-cols-3 gap-4">
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-green-600">{yearlyReport.worked}</div>
-                        <div className="text-sm text-gray-500">Worked</div>
+                    {/* Salary Adjustment Section */}
+                    {monthlyReport.sick > 0 && (
+                      <div className="mt-4 pt-4 border-t border-gray-200">
+                        <h5 className="text-sm font-medium text-gray-700 mb-3">Salary Adjustment</h5>
+                        {(() => {
+                          const convertedSalary = convertCurrency(selectedEmployee.salary, selectedEmployee.currency, displayCurrency, rates)
+                          const deduction = calculateSalaryDeduction(convertedSalary, monthlyReport)
+                          return (
+                            <div className="space-y-2 text-sm">
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">Base Salary</span>
+                                <span className="font-medium">{formatCurrency(deduction.baseSalary, displayCurrency)}</span>
+                              </div>
+                              <div className="flex justify-between text-red-600">
+                                <span>Sick Day Deduction ({deduction.sickDays} day{deduction.sickDays !== 1 ? 's' : ''})</span>
+                                <span>-{formatCurrency(deduction.deductionAmount, displayCurrency)}</span>
+                              </div>
+                              <div className="flex justify-between pt-2 border-t border-gray-100">
+                                <span className="font-medium text-gray-700">Adjusted Salary</span>
+                                <span className="font-bold text-primary-600">{formatCurrency(deduction.adjustedSalary, displayCurrency)}</span>
+                              </div>
+                            </div>
+                          )
+                        })()}
                       </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-yellow-600">{yearlyReport.sick}</div>
-                        <div className="text-sm text-gray-500">Sick</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-blue-600">{yearlyReport.vacation}</div>
-                        <div className="text-sm text-gray-500">Vacation</div>
-                      </div>
-                    </div>
-                    <div className="mt-4 pt-4 border-t border-gray-200">
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Total workdays (weekdays)</span>
-                        <span className="font-medium">{yearlyReport.workdays}</span>
-                      </div>
-                    </div>
+                    )}
                   </>
                 ) : (
                   <p className="text-gray-500 text-center py-4">No workdays in this period</p>
@@ -275,85 +312,183 @@ export default function ReportSummary({
               All Employees - {months[selectedMonth - 1]} {selectedYear}
             </h3>
           </div>
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Employee
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Position
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Salary
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Start Date
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {validEmployees.map((employee) => {
-                const convertedSalary = convertCurrency(
-                  employee.salary,
-                  employee.currency,
-                  displayCurrency,
-                  rates
-                )
-
-                return (
-                  <tr
-                    key={employee.id}
-                    onClick={() => onSelectEmployee(employee)}
-                    className="hover:bg-gray-50 cursor-pointer"
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="h-10 w-10 rounded-full bg-primary-600 flex items-center justify-center text-white font-medium">
-                          {employee.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">{employee.name}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {employee.position}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                      {formatCurrency(convertedSalary, displayCurrency)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
-                      {new Date(employee.start_date).toLocaleDateString()}
-                    </td>
+          {loadingAll ? (
+            <div className="text-center py-8 text-gray-500">Loading reports...</div>
+          ) : (
+            <>
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Employee
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Position
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Base Salary
+                    </th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Sick Days
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Adjusted Salary
+                    </th>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
-          <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
-            <p className="text-sm text-gray-500">
-              Click on an employee to view detailed attendance reports
-            </p>
-          </div>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {validEmployees.map((employee) => {
+                    const convertedSalary = convertCurrency(
+                      employee.salary,
+                      employee.currency,
+                      displayCurrency,
+                      rates
+                    )
+                    const report = allEmployeeReports.get(employee.id)
+                    const deduction = report
+                      ? calculateSalaryDeduction(convertedSalary, report)
+                      : { baseSalary: convertedSalary, adjustedSalary: convertedSalary, deductionAmount: 0, sickDays: 0, workdays: 0 }
+
+                    return (
+                      <tr
+                        key={employee.id}
+                        onClick={() => onSelectEmployee(employee)}
+                        className="hover:bg-gray-50 cursor-pointer"
+                      >
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="h-10 w-10 rounded-full bg-primary-600 flex items-center justify-center text-white font-medium">
+                              {employee.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="ml-4">
+                              <div className="text-sm font-medium text-gray-900">{employee.name}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {employee.position}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
+                          {formatCurrency(convertedSalary, displayCurrency)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
+                          {deduction.sickDays > 0 ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                              {deduction.sickDays}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">0</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                          {deduction.sickDays > 0 ? (
+                            <div>
+                              <span className="font-medium text-gray-900">
+                                {formatCurrency(deduction.adjustedSalary, displayCurrency)}
+                              </span>
+                              <span className="block text-xs text-red-600">
+                                -{formatCurrency(deduction.deductionAmount, displayCurrency)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-900">{formatCurrency(convertedSalary, displayCurrency)}</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot className="bg-gray-100">
+                  {(() => {
+                    let totalBaseSalary = 0
+                    let totalAdjustedSalary = 0
+                    let totalSickDays = 0
+
+                    validEmployees.forEach((employee) => {
+                      const convertedSalary = convertCurrency(
+                        employee.salary,
+                        employee.currency,
+                        displayCurrency,
+                        rates
+                      )
+                      const report = allEmployeeReports.get(employee.id)
+                      const deduction = report
+                        ? calculateSalaryDeduction(convertedSalary, report)
+                        : { baseSalary: convertedSalary, adjustedSalary: convertedSalary, deductionAmount: 0, sickDays: 0, workdays: 0 }
+
+                      totalBaseSalary += convertedSalary
+                      totalAdjustedSalary += deduction.adjustedSalary
+                      totalSickDays += deduction.sickDays
+                    })
+
+                    const totalDeduction = totalBaseSalary - totalAdjustedSalary
+
+                    return (
+                      <tr className="font-semibold">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          Monthly Total
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {validEmployees.length} employee{validEmployees.length !== 1 ? 's' : ''}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
+                          {formatCurrency(totalBaseSalary, displayCurrency)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
+                          {totalSickDays > 0 ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                              {totalSickDays}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">0</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                          {totalDeduction > 0 ? (
+                            <div>
+                              <span className="font-bold text-primary-600">
+                                {formatCurrency(totalAdjustedSalary, displayCurrency)}
+                              </span>
+                              <span className="block text-xs text-red-600">
+                                -{formatCurrency(totalDeduction, displayCurrency)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="font-bold text-primary-600">
+                              {formatCurrency(totalAdjustedSalary, displayCurrency)}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })()}
+                </tfoot>
+              </table>
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+                <p className="text-sm text-gray-500">
+                  Click on an employee to view detailed attendance reports
+                </p>
+              </div>
+            </>
+          )}
         </div>
       )}
 
       {/* Legend */}
       <div className="bg-white rounded-lg shadow p-4">
         <h4 className="text-sm font-medium text-gray-700 mb-2">Legend</h4>
-        <div className="flex gap-6">
+        <div className="flex flex-wrap gap-6">
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 bg-green-500 rounded" />
             <span className="text-sm text-gray-600">Worked</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 bg-yellow-500 rounded" />
-            <span className="text-sm text-gray-600">Sick Leave</span>
+            <span className="text-sm text-gray-600">Sick Leave (deducted)</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 bg-blue-500 rounded" />
-            <span className="text-sm text-gray-600">Vacation</span>
+            <span className="text-sm text-gray-600">Vacation (paid)</span>
           </div>
         </div>
       </div>

@@ -1,7 +1,15 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'path'
-import { initDatabase, closeDatabase } from './database/db'
 import * as queries from './database/queries'
+import { testConnection } from './database/supabase'
+
+// Handle EPIPE errors that occur when stdout/stderr aren't available in packaged app
+process.on('uncaughtException', (error) => {
+  if (error.message?.includes('EPIPE')) return
+})
+
+process.stdout?.on?.('error', () => {})
+process.stderr?.on?.('error', () => {})
 
 let mainWindow: BrowserWindow | null = null
 
@@ -33,7 +41,16 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  await initDatabase()
+  // Test Supabase connection on startup
+  try {
+    const connected = await testConnection()
+    if (!connected) {
+      try { console.warn('Warning: Could not connect to Supabase. Check your internet connection.') } catch {}
+    }
+  } catch {
+    // Silently ignore connection test failures
+  }
+
   createWindow()
 
   app.on('activate', () => {
@@ -44,14 +61,9 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => {
-  closeDatabase()
   if (process.platform !== 'darwin') {
     app.quit()
   }
-})
-
-app.on('before-quit', () => {
-  closeDatabase()
 })
 
 // Employee IPC handlers

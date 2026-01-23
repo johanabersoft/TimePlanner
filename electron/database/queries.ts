@@ -1,4 +1,4 @@
-import { getDb, saveDatabase } from './db'
+import { getSupabase } from './supabase'
 
 // Types
 interface Employee {
@@ -34,225 +34,249 @@ interface AttendanceReport {
   total: number
 }
 
-// Helper function to convert result array to object
-function rowToObject<T>(columns: string[], values: unknown[]): T {
-  const obj: Record<string, unknown> = {}
-  columns.forEach((col, i) => {
-    obj[col] = values[i]
-  })
-  return obj as T
-}
-
-function queryAll<T>(sql: string, params: unknown[] = []): T[] {
-  const db = getDb()
-  const stmt = db.prepare(sql)
-  if (params.length > 0) {
-    stmt.bind(params)
-  }
-
-  const results: T[] = []
-  while (stmt.step()) {
-    const row = stmt.getAsObject()
-    results.push(row as T)
-  }
-  stmt.free()
-  return results
-}
-
-function queryOne<T>(sql: string, params: unknown[] = []): T | undefined {
-  const results = queryAll<T>(sql, params)
-  return results[0]
-}
-
-function runQuery(sql: string, params: unknown[] = []): void {
-  const db = getDb()
-  db.run(sql, params)
-  saveDatabase()
-}
-
-function getLastInsertRowId(): number {
-  const db = getDb()
-  const result = db.exec('SELECT last_insert_rowid() as id')
-  return result[0]?.values[0][0] as number
-}
-
 // Employee queries
-export function getAllEmployees(): Employee[] {
-  return queryAll<Employee>('SELECT * FROM employees ORDER BY name')
+export async function getAllEmployees(): Promise<Employee[]> {
+  const supabase = getSupabase()
+  const { data, error } = await supabase
+    .from('employees')
+    .select('*')
+    .order('name')
+
+  if (error) throw error
+  return data || []
 }
 
-export function getEmployeeById(id: number): Employee | undefined {
-  return queryOne<Employee>('SELECT * FROM employees WHERE id = ?', [id])
+export async function getEmployeeById(id: number): Promise<Employee | undefined> {
+  const supabase = getSupabase()
+  const { data, error } = await supabase
+    .from('employees')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (error && error.code !== 'PGRST116') throw error
+  return data || undefined
 }
 
-export function createEmployee(employee: Omit<Employee, 'id' | 'created_at'>): Employee {
-  const db = getDb()
-  db.run(
-    `INSERT INTO employees (name, position, salary, currency, start_date)
-     VALUES (?, ?, ?, ?, ?)`,
-    [employee.name, employee.position, employee.salary, employee.currency, employee.start_date]
-  )
-  const id = getLastInsertRowId()
-  saveDatabase()
-  const created = getEmployeeById(id)
-  if (!created) {
-    throw new Error('Failed to create employee')
-  }
-  return created
+export async function createEmployee(employee: Omit<Employee, 'id' | 'created_at'>): Promise<Employee> {
+  const supabase = getSupabase()
+  const { data, error } = await supabase
+    .from('employees')
+    .insert({
+      name: employee.name,
+      position: employee.position,
+      salary: employee.salary,
+      currency: employee.currency,
+      start_date: employee.start_date
+    })
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
 }
 
-export function updateEmployee(id: number, employee: Partial<Omit<Employee, 'id' | 'created_at'>>): Employee | undefined {
-  const fields: string[] = []
-  const values: unknown[] = []
+export async function updateEmployee(
+  id: number,
+  employee: Partial<Omit<Employee, 'id' | 'created_at'>>
+): Promise<Employee | undefined> {
+  const supabase = getSupabase()
 
-  if (employee.name !== undefined) {
-    fields.push('name = ?')
-    values.push(employee.name)
-  }
-  if (employee.position !== undefined) {
-    fields.push('position = ?')
-    values.push(employee.position)
-  }
-  if (employee.salary !== undefined) {
-    fields.push('salary = ?')
-    values.push(employee.salary)
-  }
-  if (employee.currency !== undefined) {
-    fields.push('currency = ?')
-    values.push(employee.currency)
-  }
-  if (employee.start_date !== undefined) {
-    fields.push('start_date = ?')
-    values.push(employee.start_date)
+  const updateData: Record<string, unknown> = {}
+  if (employee.name !== undefined) updateData.name = employee.name
+  if (employee.position !== undefined) updateData.position = employee.position
+  if (employee.salary !== undefined) updateData.salary = employee.salary
+  if (employee.currency !== undefined) updateData.currency = employee.currency
+  if (employee.start_date !== undefined) updateData.start_date = employee.start_date
+
+  if (Object.keys(updateData).length === 0) {
+    return getEmployeeById(id)
   }
 
-  if (fields.length === 0) return getEmployeeById(id)
+  const { data, error } = await supabase
+    .from('employees')
+    .update(updateData)
+    .eq('id', id)
+    .select()
+    .single()
 
-  values.push(id)
-  runQuery(`UPDATE employees SET ${fields.join(', ')} WHERE id = ?`, values)
-
-  return getEmployeeById(id)
+  if (error && error.code !== 'PGRST116') throw error
+  return data || undefined
 }
 
-export function deleteEmployee(id: number): boolean {
-  const before = getEmployeeById(id)
-  if (!before) return false
+export async function deleteEmployee(id: number): Promise<boolean> {
+  const supabase = getSupabase()
+  const existing = await getEmployeeById(id)
+  if (!existing) return false
 
-  runQuery('DELETE FROM employees WHERE id = ?', [id])
+  const { error } = await supabase
+    .from('employees')
+    .delete()
+    .eq('id', id)
+
+  if (error) throw error
   return true
 }
 
 // Attendance queries
-export function getAttendanceByEmployee(employeeId: number, month?: string): Attendance[] {
+export async function getAttendanceByEmployee(employeeId: number, month?: string): Promise<Attendance[]> {
+  const supabase = getSupabase()
+
+  let query = supabase
+    .from('attendance')
+    .select('*')
+    .eq('employee_id', employeeId)
+
   if (month) {
-    return queryAll<Attendance>(
-      `SELECT * FROM attendance WHERE employee_id = ? AND date LIKE ? ORDER BY date`,
-      [employeeId, `${month}%`]
-    )
-  }
-
-  return queryAll<Attendance>(
-    `SELECT * FROM attendance WHERE employee_id = ? ORDER BY date DESC`,
-    [employeeId]
-  )
-}
-
-export function getAttendanceByDate(date: string): (Attendance & { employee_name: string })[] {
-  return queryAll<Attendance & { employee_name: string }>(
-    `SELECT a.*, e.name as employee_name
-     FROM attendance a
-     JOIN employees e ON a.employee_id = e.id
-     WHERE a.date = ?
-     ORDER BY e.name`,
-    [date]
-  )
-}
-
-export function setAttendance(attendance: Omit<Attendance, 'id'>): Attendance {
-  // Check if record exists
-  const existing = queryOne<Attendance>(
-    `SELECT * FROM attendance WHERE employee_id = ? AND date = ?`,
-    [attendance.employee_id, attendance.date]
-  )
-
-  if (existing) {
-    runQuery(
-      `UPDATE attendance SET status = ?, notes = ? WHERE employee_id = ? AND date = ?`,
-      [attendance.status, attendance.notes || null, attendance.employee_id, attendance.date]
-    )
+    query = query.like('date', `${month}%`).order('date')
   } else {
-    runQuery(
-      `INSERT INTO attendance (employee_id, date, status, notes)
-       VALUES (?, ?, ?, ?)`,
-      [attendance.employee_id, attendance.date, attendance.status, attendance.notes || null]
-    )
+    query = query.order('date', { ascending: false })
   }
 
-  return queryOne<Attendance>(
-    `SELECT * FROM attendance WHERE employee_id = ? AND date = ?`,
-    [attendance.employee_id, attendance.date]
-  )!
+  const { data, error } = await query
+
+  if (error) throw error
+  return data || []
 }
 
-export function deleteAttendance(id: number): boolean {
-  const before = queryOne<Attendance>('SELECT * FROM attendance WHERE id = ?', [id])
-  if (!before) return false
+export async function getAttendanceByDate(date: string): Promise<(Attendance & { employee_name: string })[]> {
+  const supabase = getSupabase()
+  const { data, error } = await supabase
+    .from('attendance')
+    .select(`
+      *,
+      employees!inner(name)
+    `)
+    .eq('date', date)
+    .order('employees(name)')
 
-  runQuery('DELETE FROM attendance WHERE id = ?', [id])
+  if (error) throw error
+
+  return (data || []).map((row: { employees: { name: string } } & Attendance) => ({
+    id: row.id,
+    employee_id: row.employee_id,
+    date: row.date,
+    status: row.status,
+    notes: row.notes,
+    employee_name: row.employees.name
+  }))
+}
+
+export async function setAttendance(attendance: Omit<Attendance, 'id'>): Promise<Attendance> {
+  const supabase = getSupabase()
+
+  const { data, error } = await supabase
+    .from('attendance')
+    .upsert(
+      {
+        employee_id: attendance.employee_id,
+        date: attendance.date,
+        status: attendance.status,
+        notes: attendance.notes || null
+      },
+      { onConflict: 'employee_id,date' }
+    )
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export async function deleteAttendance(id: number): Promise<boolean> {
+  const supabase = getSupabase()
+
+  const { data: existing } = await supabase
+    .from('attendance')
+    .select('id')
+    .eq('id', id)
+    .single()
+
+  if (!existing) return false
+
+  const { error } = await supabase
+    .from('attendance')
+    .delete()
+    .eq('id', id)
+
+  if (error) throw error
   return true
 }
 
-export function deleteAttendanceByEmployeeAndDate(employeeId: number, date: string): boolean {
-  const before = queryOne<Attendance>(
-    'SELECT * FROM attendance WHERE employee_id = ? AND date = ?',
-    [employeeId, date]
-  )
-  if (!before) return false
+export async function deleteAttendanceByEmployeeAndDate(employeeId: number, date: string): Promise<boolean> {
+  const supabase = getSupabase()
 
-  runQuery('DELETE FROM attendance WHERE employee_id = ? AND date = ?', [employeeId, date])
+  const { data: existing } = await supabase
+    .from('attendance')
+    .select('id')
+    .eq('employee_id', employeeId)
+    .eq('date', date)
+    .single()
+
+  if (!existing) return false
+
+  const { error } = await supabase
+    .from('attendance')
+    .delete()
+    .eq('employee_id', employeeId)
+    .eq('date', date)
+
+  if (error) throw error
   return true
 }
 
 // Get all employees with their attendance status for a specific date
-export function getAllEmployeesForDate(date: string): Array<{
+export async function getAllEmployeesForDate(date: string): Promise<Array<{
   employee_id: number
   employee_name: string
   position: string
   status: 'worked' | 'sick' | 'vacation' | null
   attendance_id: number | null
-}> {
-  return queryAll<{
-    employee_id: number
-    employee_name: string
-    position: string
-    status: 'worked' | 'sick' | 'vacation' | null
-    attendance_id: number | null
-  }>(
-    `SELECT
-      e.id as employee_id,
-      e.name as employee_name,
-      e.position,
-      a.status,
-      a.id as attendance_id
-    FROM employees e
-    LEFT JOIN attendance a ON e.id = a.employee_id AND a.date = ?
-    ORDER BY e.name`,
-    [date]
+}>> {
+  const supabase = getSupabase()
+
+  // Get all employees
+  const { data: employees, error: empError } = await supabase
+    .from('employees')
+    .select('id, name, position')
+    .order('name')
+
+  if (empError) throw empError
+
+  // Get attendance for the date
+  const { data: attendance, error: attError } = await supabase
+    .from('attendance')
+    .select('id, employee_id, status')
+    .eq('date', date)
+
+  if (attError) throw attError
+
+  const attendanceMap = new Map(
+    (attendance || []).map((a: { id: number; employee_id: number; status: 'worked' | 'sick' | 'vacation' }) => [
+      a.employee_id,
+      { status: a.status, id: a.id }
+    ])
   )
+
+  return (employees || []).map((emp: { id: number; name: string; position: string }) => ({
+    employee_id: emp.id,
+    employee_name: emp.name,
+    position: emp.position,
+    status: attendanceMap.get(emp.id)?.status || null,
+    attendance_id: attendanceMap.get(emp.id)?.id || null
+  }))
 }
 
 // Bulk update attendance for multiple employees on a single date
-export function bulkSetAttendance(
+export async function bulkSetAttendance(
   date: string,
   entries: Array<{ employee_id: number; status: 'worked' | 'sick' | 'vacation' | null }>
-): void {
+): Promise<void> {
   for (const entry of entries) {
     if (entry.status === null) {
-      // Delete the record if status is null (clearing the entry)
-      deleteAttendanceByEmployeeAndDate(entry.employee_id, date)
+      await deleteAttendanceByEmployeeAndDate(entry.employee_id, date)
     } else {
-      // Set or update the attendance
-      setAttendance({
+      await setAttendance({
         employee_id: entry.employee_id,
         date,
         status: entry.status,
@@ -262,55 +286,56 @@ export function bulkSetAttendance(
   }
 }
 
-export function getMonthlyAttendanceReport(employeeId: number, year: number, month: number): AttendanceReport {
+export async function getMonthlyAttendanceReport(
+  employeeId: number,
+  year: number,
+  month: number
+): Promise<AttendanceReport> {
+  const supabase = getSupabase()
   const monthStr = `${year}-${String(month).padStart(2, '0')}`
 
-  const result = queryOne<{
-    worked: number | null
-    sick: number | null
-    vacation: number | null
-    total: number | null
-  }>(
-    `SELECT
-      SUM(CASE WHEN status = 'worked' THEN 1 ELSE 0 END) as worked,
-      SUM(CASE WHEN status = 'sick' THEN 1 ELSE 0 END) as sick,
-      SUM(CASE WHEN status = 'vacation' THEN 1 ELSE 0 END) as vacation,
-      COUNT(*) as total
-    FROM attendance
-    WHERE employee_id = ? AND date LIKE ?`,
-    [employeeId, `${monthStr}%`]
-  )
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('status')
+    .eq('employee_id', employeeId)
+    .like('date', `${monthStr}%`)
+
+  if (error) throw error
+
+  const records = data || []
+  const worked = records.filter((r: { status: string }) => r.status === 'worked').length
+  const sick = records.filter((r: { status: string }) => r.status === 'sick').length
+  const vacation = records.filter((r: { status: string }) => r.status === 'vacation').length
 
   return {
-    worked: result?.worked || 0,
-    sick: result?.sick || 0,
-    vacation: result?.vacation || 0,
-    total: result?.total || 0
+    worked,
+    sick,
+    vacation,
+    total: records.length
   }
 }
 
-export function getYearlyAttendanceReport(employeeId: number, year: number): AttendanceReport {
-  const result = queryOne<{
-    worked: number | null
-    sick: number | null
-    vacation: number | null
-    total: number | null
-  }>(
-    `SELECT
-      SUM(CASE WHEN status = 'worked' THEN 1 ELSE 0 END) as worked,
-      SUM(CASE WHEN status = 'sick' THEN 1 ELSE 0 END) as sick,
-      SUM(CASE WHEN status = 'vacation' THEN 1 ELSE 0 END) as vacation,
-      COUNT(*) as total
-    FROM attendance
-    WHERE employee_id = ? AND date LIKE ?`,
-    [employeeId, `${year}%`]
-  )
+export async function getYearlyAttendanceReport(employeeId: number, year: number): Promise<AttendanceReport> {
+  const supabase = getSupabase()
+
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('status')
+    .eq('employee_id', employeeId)
+    .like('date', `${year}%`)
+
+  if (error) throw error
+
+  const records = data || []
+  const worked = records.filter((r: { status: string }) => r.status === 'worked').length
+  const sick = records.filter((r: { status: string }) => r.status === 'sick').length
+  const vacation = records.filter((r: { status: string }) => r.status === 'vacation').length
 
   return {
-    worked: result?.worked || 0,
-    sick: result?.sick || 0,
-    vacation: result?.vacation || 0,
-    total: result?.total || 0
+    worked,
+    sick,
+    vacation,
+    total: records.length
   }
 }
 
@@ -332,124 +357,121 @@ function countWeekdays(startDate: Date, endDate: Date): number {
 }
 
 // Smart monthly report: calculates worked days as workdays - sick - vacation
-export function getSmartMonthlyAttendanceReport(
+export async function getSmartMonthlyAttendanceReport(
   employeeId: number,
   year: number,
   month: number
-): { workdays: number; worked: number; sick: number; vacation: number } {
-  // Calculate workdays in the month (weekdays only)
+): Promise<{ workdays: number; worked: number; sick: number; vacation: number }> {
   const startDate = new Date(year, month - 1, 1)
-  const endDate = new Date(year, month, 0) // Last day of month
+  const endDate = new Date(year, month, 0)
 
-  // Don't count future dates
   const today = new Date()
   today.setHours(23, 59, 59, 999)
   const effectiveEndDate = endDate > today ? today : endDate
 
-  // If the entire month is in the future, return zeros
   if (startDate > today) {
     return { workdays: 0, worked: 0, sick: 0, vacation: 0 }
   }
 
   const workdays = countWeekdays(startDate, effectiveEndDate)
 
-  // Get sick and vacation days from database
+  const supabase = getSupabase()
   const monthStr = `${year}-${String(month).padStart(2, '0')}`
-  const result = queryOne<{
-    sick: number | null
-    vacation: number | null
-  }>(
-    `SELECT
-      SUM(CASE WHEN status = 'sick' THEN 1 ELSE 0 END) as sick,
-      SUM(CASE WHEN status = 'vacation' THEN 1 ELSE 0 END) as vacation
-    FROM attendance
-    WHERE employee_id = ? AND date LIKE ?`,
-    [employeeId, `${monthStr}%`]
-  )
 
-  const sick = result?.sick || 0
-  const vacation = result?.vacation || 0
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('status')
+    .eq('employee_id', employeeId)
+    .like('date', `${monthStr}%`)
+    .in('status', ['sick', 'vacation'])
+
+  if (error) throw error
+
+  const records = data || []
+  const sick = records.filter((r: { status: string }) => r.status === 'sick').length
+  const vacation = records.filter((r: { status: string }) => r.status === 'vacation').length
   const worked = Math.max(0, workdays - sick - vacation)
 
   return { workdays, worked, sick, vacation }
 }
 
 // Smart yearly report: calculates worked days as workdays - sick - vacation
-export function getSmartYearlyAttendanceReport(
+export async function getSmartYearlyAttendanceReport(
   employeeId: number,
   year: number
-): { workdays: number; worked: number; sick: number; vacation: number } {
-  // Calculate workdays in the year (weekdays only)
+): Promise<{ workdays: number; worked: number; sick: number; vacation: number }> {
   const startDate = new Date(year, 0, 1)
   const endDate = new Date(year, 11, 31)
 
-  // Don't count future dates
   const today = new Date()
   today.setHours(23, 59, 59, 999)
   const effectiveEndDate = endDate > today ? today : endDate
 
-  // If the entire year is in the future, return zeros
   if (startDate > today) {
     return { workdays: 0, worked: 0, sick: 0, vacation: 0 }
   }
 
   const workdays = countWeekdays(startDate, effectiveEndDate)
 
-  // Get sick and vacation days from database
-  const result = queryOne<{
-    sick: number | null
-    vacation: number | null
-  }>(
-    `SELECT
-      SUM(CASE WHEN status = 'sick' THEN 1 ELSE 0 END) as sick,
-      SUM(CASE WHEN status = 'vacation' THEN 1 ELSE 0 END) as vacation
-    FROM attendance
-    WHERE employee_id = ? AND date LIKE ?`,
-    [employeeId, `${year}%`]
-  )
+  const supabase = getSupabase()
 
-  const sick = result?.sick || 0
-  const vacation = result?.vacation || 0
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('status')
+    .eq('employee_id', employeeId)
+    .like('date', `${year}%`)
+    .in('status', ['sick', 'vacation'])
+
+  if (error) throw error
+
+  const records = data || []
+  const sick = records.filter((r: { status: string }) => r.status === 'sick').length
+  const vacation = records.filter((r: { status: string }) => r.status === 'vacation').length
   const worked = Math.max(0, workdays - sick - vacation)
 
   return { workdays, worked, sick, vacation }
 }
 
 // Currency queries
-export function getCurrencyRates(): CurrencyRate[] {
-  return queryAll<CurrencyRate>('SELECT * FROM currency_rates')
+export async function getCurrencyRates(): Promise<CurrencyRate[]> {
+  const supabase = getSupabase()
+  const { data, error } = await supabase.from('currency_rates').select('*')
+
+  if (error) throw error
+  return data || []
 }
 
-export function getCurrencyRate(from: string, to: string): number | undefined {
-  const result = queryOne<{ rate: number }>(
-    `SELECT rate FROM currency_rates WHERE from_curr = ? AND to_curr = ?`,
-    [from, to]
-  )
-  return result?.rate
+export async function getCurrencyRate(from: string, to: string): Promise<number | undefined> {
+  const supabase = getSupabase()
+  const { data, error } = await supabase
+    .from('currency_rates')
+    .select('rate')
+    .eq('from_curr', from)
+    .eq('to_curr', to)
+    .single()
+
+  if (error && error.code !== 'PGRST116') throw error
+  return data?.rate
 }
 
-export function updateCurrencyRates(rates: Array<{ from_curr: string; to_curr: string; rate: number }>): void {
-  const db = getDb()
+export async function updateCurrencyRates(
+  rates: Array<{ from_curr: string; to_curr: string; rate: number }>
+): Promise<void> {
+  const supabase = getSupabase()
 
   for (const rate of rates) {
-    // Check if exists
-    const existing = queryOne<CurrencyRate>(
-      `SELECT * FROM currency_rates WHERE from_curr = ? AND to_curr = ?`,
-      [rate.from_curr, rate.to_curr]
-    )
+    const { error } = await supabase
+      .from('currency_rates')
+      .upsert(
+        {
+          from_curr: rate.from_curr,
+          to_curr: rate.to_curr,
+          rate: rate.rate,
+          updated: new Date().toISOString()
+        },
+        { onConflict: 'from_curr,to_curr' }
+      )
 
-    if (existing) {
-      db.run(
-        `UPDATE currency_rates SET rate = ?, updated = datetime('now') WHERE from_curr = ? AND to_curr = ?`,
-        [rate.rate, rate.from_curr, rate.to_curr]
-      )
-    } else {
-      db.run(
-        `INSERT INTO currency_rates (from_curr, to_curr, rate) VALUES (?, ?, ?)`,
-        [rate.from_curr, rate.to_curr, rate.rate]
-      )
-    }
+    if (error) throw error
   }
-
-  saveDatabase()
 }
