@@ -17,7 +17,7 @@ interface UseCurrencyReturn {
 
 export function useCurrency(): UseCurrencyReturn {
   const [rates, setRates] = useState<CurrencyRate[]>([])
-  const [displayCurrency, setDisplayCurrency] = useState<Currency>('USD')
+  const [displayCurrency, setDisplayCurrency] = useState<Currency>('SEK')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<string | null>(null)

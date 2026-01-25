@@ -6,7 +6,7 @@ import EmployeeList from './components/EmployeeList'
 import EmployeeForm from './components/EmployeeForm'
 import AttendanceCalendar from './components/AttendanceCalendar'
 import SalaryDisplay from './components/SalaryDisplay'
-import ReportSummary from './components/ReportSummary'
+import ReportPage from './components/reports/ReportPage'
 import IncomeSummary from './components/IncomeSummary'
 
 function App() {
@@ -206,7 +206,7 @@ function App() {
           {currentView === 'reports' && (
             <div>
               <h2 className="text-2xl font-bold text-gray-800 mb-6">Reports</h2>
-              <ReportSummary
+              <ReportPage
                 employees={validEmployees}
                 selectedEmployee={selectedEmployee}
                 onSelectEmployee={setSelectedEmployee}

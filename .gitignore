@@ -37,3 +37,10 @@ npm-debug.log*
 # Temporary files
 *.tmp
 *.temp
+
+# Claude Code
+.claude/
+.mcp.json
+
+# Windows artifacts
+nul

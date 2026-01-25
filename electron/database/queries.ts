@@ -508,6 +508,7 @@ interface ConsultantContract {
   currency: string
   start_date: string
   is_active: boolean
+  vat_rate: number | null
   created_at: string
   employees?: Employee[]
 }
@@ -612,7 +613,8 @@ export async function createConsultantContract(
       monthly_fee: contractData.monthly_fee,
       currency: contractData.currency,
       start_date: contractData.start_date,
-      is_active: contractData.is_active ?? true
+      is_active: contractData.is_active ?? true,
+      vat_rate: contractData.vat_rate ?? null
     })
     .select()
     .single()

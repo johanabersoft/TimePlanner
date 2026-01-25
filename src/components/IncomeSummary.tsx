@@ -5,9 +5,69 @@ import { convertCurrency, formatCurrency } from '../utils/currency'
 import ConsultantFeesDetail from './ConsultantFeesDetail'
 import AdRevenueDetail from './AdRevenueDetail'
 import IapRevenueDetail from './IapRevenueDetail'
-import IncomeChart from './IncomeChart'
 
 type IncomeView = 'summary' | 'consultant' | 'ads' | 'iap'
+
+interface VatQuarterInfo {
+  quarterLabel: string
+  months: string
+  quarterYear: number
+  dueDate: Date
+}
+
+function getVatQuarterInfo(date: Date): VatQuarterInfo {
+  const month = date.getMonth() + 1 // 1-12
+  const day = date.getDate()
+  const year = date.getFullYear()
+
+  // Determine next VAT payment based on upcoming due dates
+  // Q4 (Oct-Dec) → due Feb 12
+  // Q1 (Jan-Mar) → due May 12
+  // Q2 (Apr-Jun) → due Aug 12
+  // Q3 (Jul-Sep) → due Nov 12
+
+  if (month < 2 || (month === 2 && day <= 12)) {
+    // Jan 1 - Feb 12: Q4 payment due Feb 12
+    return {
+      quarterLabel: 'Q4',
+      months: 'October - December',
+      quarterYear: year - 1,
+      dueDate: new Date(year, 1, 12), // Feb 12
+    }
+  } else if (month < 5 || (month === 5 && day <= 12)) {
+    // Feb 13 - May 12: Q1 payment due May 12
+    return {
+      quarterLabel: 'Q1',
+      months: 'January - March',
+      quarterYear: year,
+      dueDate: new Date(year, 4, 12), // May 12
+    }
+  } else if (month < 8 || (month === 8 && day <= 12)) {
+    // May 13 - Aug 12: Q2 payment due Aug 12
+    return {
+      quarterLabel: 'Q2',
+      months: 'April - June',
+      quarterYear: year,
+      dueDate: new Date(year, 7, 12), // Aug 12
+    }
+  } else if (month < 11 || (month === 11 && day <= 12)) {
+    // Aug 13 - Nov 12: Q3 payment due Nov 12
+    return {
+      quarterLabel: 'Q3',
+      months: 'July - September',
+      quarterYear: year,
+      dueDate: new Date(year, 10, 12), // Nov 12
+    }
+  } else {
+    // Nov 13 - Dec 31: Q4 payment due Feb 12 next year
+    return {
+      quarterLabel: 'Q4',
+      months: 'October - December',
+      quarterYear: year,
+      dueDate: new Date(year + 1, 1, 12), // Feb 12 next year
+    }
+  }
+}
 
 interface Props {
   displayCurrency: Currency
@@ -34,11 +94,20 @@ export default function IncomeSummary({ displayCurrency, rates, employees }: Pro
 
   // Calculate totals in display currency
   const totals = useMemo(() => {
-    // Consultant fees - only active contracts
-    const consultantTotal = contracts
+    // Consultant fees - base amount only (no VAT)
+    const consultantBase = contracts
       .filter(c => c.is_active)
       .reduce((sum, c) => {
         const converted = convertCurrency(c.monthly_fee, c.currency, displayCurrency, rates)
+        return sum + converted
+      }, 0)
+
+    // VAT total from consultant contracts
+    const consultantVat = contracts
+      .filter(c => c.is_active && c.vat_rate)
+      .reduce((sum, c) => {
+        const vatAmount = c.monthly_fee * (c.vat_rate || 0) / 100
+        const converted = convertCurrency(vatAmount, c.currency, displayCurrency, rates)
         return sum + converted
       }, 0)
 
@@ -58,13 +127,21 @@ export default function IncomeSummary({ displayCurrency, rates, employees }: Pro
       return sum + converted
     }, 0)
 
+    // Quarterly VAT = 3 months of consultant VAT
+    const quarterlyVat = consultantVat * 3
+
     return {
-      consultant: consultantTotal,
+      consultant: consultantBase,
+      consultantVat: consultantVat,
+      quarterlyVat: quarterlyVat,
       ads: adTotal,
       iap: iapTotal,
-      total: consultantTotal + adTotal + iapTotal
+      total: consultantBase + consultantVat + adTotal + iapTotal
     }
   }, [contracts, adRevenue, iapRevenue, displayCurrency, rates])
+
+  // Get VAT quarter info based on current date
+  const vatQuarterInfo = useMemo(() => getVatQuarterInfo(new Date()), [])
 
   if (loading) {
     return <div className="text-center py-8 text-gray-500">Loading income data...</div>
@@ -143,6 +220,11 @@ export default function IncomeSummary({ displayCurrency, rates, employees }: Pro
           <p className="text-2xl font-bold text-indigo-600 mt-2">
             {formatCurrency(totals.consultant, displayCurrency)}
           </p>
+          {totals.consultantVat > 0 && (
+            <p className="text-sm text-gray-500">
+              + {formatCurrency(totals.consultantVat, displayCurrency)} VAT
+            </p>
+          )}
           <p className="text-sm text-gray-500 mt-1">Monthly recurring</p>
         </button>
 
@@ -198,28 +280,47 @@ export default function IncomeSummary({ displayCurrency, rates, employees }: Pro
           <div>
             <h3 className="text-lg font-medium opacity-90">Total Monthly Income</h3>
             <p className="text-3xl font-bold mt-2">
-              {formatCurrency(totals.total, displayCurrency)}
+              {formatCurrency(totals.total - totals.consultantVat, displayCurrency)}
             </p>
+            {totals.consultantVat > 0 && (
+              <p className="text-sm opacity-75 mt-1">
+                + {formatCurrency(totals.consultantVat, displayCurrency)} VAT
+              </p>
+            )}
           </div>
           <div className="text-right text-sm opacity-75">
             <p>Consultant: {formatCurrency(totals.consultant, displayCurrency)}</p>
+            {totals.consultantVat > 0 && (
+              <p>VAT: {formatCurrency(totals.consultantVat, displayCurrency)}</p>
+            )}
             <p>Ads: {formatCurrency(totals.ads, displayCurrency)}</p>
             <p>IAP: {formatCurrency(totals.iap, displayCurrency)}</p>
           </div>
         </div>
       </div>
 
-      {/* Chart */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Income Breakdown</h3>
-        <IncomeChart
-          contracts={contracts}
-          adRevenue={adRevenue}
-          iapRevenue={iapRevenue}
-          displayCurrency={displayCurrency}
-          rates={rates}
-        />
-      </div>
+      {/* Quarterly VAT Payment */}
+      {totals.consultantVat > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-medium text-gray-900">Next VAT Payment</h3>
+              <p className="text-2xl font-bold text-amber-600 mt-2">
+                {formatCurrency(totals.quarterlyVat, displayCurrency)}
+              </p>
+              <p className="text-sm text-gray-500 mt-1">
+                {vatQuarterInfo.months} ({vatQuarterInfo.quarterLabel} {vatQuarterInfo.quarterYear})
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-gray-500">Due date</p>
+              <p className="text-lg font-semibold text-gray-900">
+                {vatQuarterInfo.dueDate.toLocaleDateString('sv-SE')}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

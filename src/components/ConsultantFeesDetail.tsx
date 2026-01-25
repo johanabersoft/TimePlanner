@@ -31,6 +31,7 @@ export default function ConsultantFeesDetail({
     currency: 'USD',
     start_date: new Date().toISOString().split('T')[0],
     is_active: true,
+    vat_rate: null,
     employee_ids: []
   })
 
@@ -42,6 +43,7 @@ export default function ConsultantFeesDetail({
       currency: contract.currency,
       start_date: contract.start_date,
       is_active: contract.is_active,
+      vat_rate: contract.vat_rate,
       employee_ids: contract.employees?.map(e => e.id) || []
     })
     setShowForm(true)
@@ -55,6 +57,7 @@ export default function ConsultantFeesDetail({
       currency: 'USD',
       start_date: new Date().toISOString().split('T')[0],
       is_active: true,
+      vat_rate: null,
       employee_ids: []
     })
     setShowForm(true)
@@ -88,7 +91,10 @@ export default function ConsultantFeesDetail({
 
   const activeTotal = contracts
     .filter(c => c.is_active)
-    .reduce((sum, c) => sum + convertCurrency(c.monthly_fee, c.currency, displayCurrency, rates), 0)
+    .reduce((sum, c) => {
+      const feeWithVat = c.monthly_fee * (1 + (c.vat_rate || 0) / 100)
+      return sum + convertCurrency(feeWithVat, c.currency, displayCurrency, rates)
+    }, 0)
 
   return (
     <div className="space-y-6">
@@ -151,9 +157,22 @@ export default function ConsultantFeesDetail({
                     <div className="text-gray-900">
                       {formatCurrency(contract.monthly_fee, contract.currency)}
                     </div>
+                    {contract.vat_rate && (
+                      <div className="text-sm text-gray-500">
+                        + {formatCurrency(contract.monthly_fee * contract.vat_rate / 100, contract.currency)} VAT
+                      </div>
+                    )}
                     {contract.currency !== displayCurrency && (
                       <div className="text-sm text-gray-500">
-                        ({formatCurrency(convertCurrency(contract.monthly_fee, contract.currency, displayCurrency, rates), displayCurrency)})
+                        ({formatCurrency(
+                          convertCurrency(
+                            contract.monthly_fee * (1 + (contract.vat_rate || 0) / 100),
+                            contract.currency,
+                            displayCurrency,
+                            rates
+                          ),
+                          displayCurrency
+                        )} total)
                       </div>
                     )}
                   </td>
@@ -252,6 +271,22 @@ export default function ConsultantFeesDetail({
                     <option value="SEK">SEK (kr)</option>
                   </select>
                 </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="include_vat"
+                  checked={formData.vat_rate === 25}
+                  onChange={e => setFormData(prev => ({
+                    ...prev,
+                    vat_rate: e.target.checked ? 25 : null
+                  }))}
+                  className="rounded text-primary-600 focus:ring-primary-500"
+                />
+                <label htmlFor="include_vat" className="text-sm text-gray-700">
+                  Add 25% VAT
+                </label>
               </div>
 
               <div>

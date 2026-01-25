@@ -111,6 +111,7 @@ export interface ConsultantContract {
   currency: Currency
   start_date: string
   is_active: boolean
+  vat_rate: number | null
   created_at: string
   employees?: Employee[]
 }
@@ -121,6 +122,7 @@ export interface ConsultantContractInput {
   currency: Currency
   start_date: string
   is_active?: boolean
+  vat_rate?: number | null
   employee_ids?: number[]
 }
 

@@ -20,6 +20,8 @@ TimePlanner/
 │   └── database/
 │       ├── supabase.ts      # Supabase client initialization
 │       └── queries.ts       # All database query functions
+├── scripts/
+│   └── generate-icon.js     # Icon generation utility
 ├── src/                      # React frontend (renderer process)
 │   ├── App.tsx              # Main app with navigation
 │   ├── components/
@@ -32,7 +34,16 @@ TimePlanner/
 │   │   ├── ConsultantFeesDetail.tsx # Consultant contract management
 │   │   ├── AdRevenueDetail.tsx     # Monthly ad revenue tracking
 │   │   ├── IapRevenueDetail.tsx    # IAP revenue by platform
-│   │   └── IncomeChart.tsx         # Income visualization chart
+│   │   └── reports/                # Report page components
+│   │       ├── index.ts
+│   │       ├── ReportPage.tsx
+│   │       ├── ReportFilterBar.tsx
+│   │       ├── ReportKpiGrid.tsx
+│   │       ├── ReportBreakdownCards.tsx
+│   │       ├── ReportChart.tsx
+│   │       ├── ReportEmployeeTable.tsx
+│   │       ├── ReportEmployeeDetail.tsx
+│   │       └── ReportEmptyState.tsx
 │   ├── hooks/
 │   │   ├── useAttendance.ts        # Attendance data operations
 │   │   ├── useEmployees.ts         # Employee CRUD operations
