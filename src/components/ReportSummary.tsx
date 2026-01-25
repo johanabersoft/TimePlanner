@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Employee, Currency, CurrencyRate, SmartAttendanceReport } from '../types'
 import { useAttendance } from '../hooks/useAttendance'
+import { useIncome } from '../hooks/useIncome'
 import { convertCurrency, formatCurrency } from '../utils/currency'
 import { calculateSalaryDeduction } from '../utils/salary'
 
@@ -27,12 +28,74 @@ export default function ReportSummary({
   const [loadingAll, setLoadingAll] = useState(false)
 
   const { getSmartMonthlyReport } = useAttendance()
+  const { contracts, adRevenue, iapRevenue, loading: incomeLoading } = useIncome()
 
   // Filter out any undefined/null employees - memoize to prevent infinite useEffect loops
   const validEmployees = useMemo(
     () => employees.filter((emp): emp is Employee => emp != null && emp.id != null),
     [employees]
   )
+
+  // Calculate income totals for selected month/year
+  const incomeForPeriod = useMemo(() => {
+    // Consultant fees - only active contracts (monthly recurring)
+    const consultantTotal = contracts
+      .filter(c => c.is_active)
+      .reduce((sum, c) => {
+        const converted = convertCurrency(c.monthly_fee, c.currency, displayCurrency, rates)
+        return sum + converted
+      }, 0)
+
+    // Ad revenue for selected month/year
+    const adEntry = adRevenue.find(r => r.year === selectedYear && r.month === selectedMonth)
+    const adTotal = adEntry
+      ? convertCurrency(adEntry.amount, adEntry.currency, displayCurrency, rates)
+      : 0
+
+    // IAP revenue for selected month/year (both platforms)
+    const iapEntries = iapRevenue.filter(r => r.year === selectedYear && r.month === selectedMonth)
+    const iapTotal = iapEntries.reduce((sum, r) => {
+      const converted = convertCurrency(r.amount, r.currency, displayCurrency, rates)
+      return sum + converted
+    }, 0)
+
+    return {
+      consultant: consultantTotal,
+      ads: adTotal,
+      iap: iapTotal,
+      total: consultantTotal + adTotal + iapTotal
+    }
+  }, [contracts, adRevenue, iapRevenue, selectedYear, selectedMonth, displayCurrency, rates])
+
+  // Calculate salary totals for all employees
+  const salaryTotals = useMemo(() => {
+    if (selectedEmployee) {
+      return { totalBase: 0, totalAdjusted: 0, totalSickDays: 0, totalDeduction: 0 }
+    }
+
+    let totalBaseSalary = 0
+    let totalAdjustedSalary = 0
+    let totalSickDays = 0
+
+    validEmployees.forEach((employee) => {
+      const convertedSalary = convertCurrency(employee.salary, employee.currency, displayCurrency, rates)
+      const report = allEmployeeReports.get(employee.id)
+      const deduction = report
+        ? calculateSalaryDeduction(convertedSalary, report)
+        : { baseSalary: convertedSalary, adjustedSalary: convertedSalary, deductionAmount: 0, sickDays: 0, workdays: 0 }
+
+      totalBaseSalary += convertedSalary
+      totalAdjustedSalary += deduction.adjustedSalary
+      totalSickDays += deduction.sickDays
+    })
+
+    return {
+      totalBase: totalBaseSalary,
+      totalAdjusted: totalAdjustedSalary,
+      totalSickDays,
+      totalDeduction: totalBaseSalary - totalAdjustedSalary
+    }
+  }, [selectedEmployee, validEmployees, allEmployeeReports, displayCurrency, rates])
 
   const currentYear = new Date().getFullYear()
   const years = Array.from({ length: 5 }, (_, i) => currentYear - i)
@@ -189,6 +252,73 @@ export default function ReportSummary({
         </div>
       </div>
 
+      {/* Quick Stats Cards - Only for "All Employees" view */}
+      {!selectedEmployee && !loadingAll && !incomeLoading && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {/* Employees Count */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 p-3 bg-blue-100 rounded-lg">
+                <svg className="h-6 w-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              </div>
+              <div className="ml-4 min-w-0">
+                <p className="text-sm font-medium text-gray-500">Employees</p>
+                <p className="text-xl font-semibold text-gray-900 truncate">{validEmployees.length}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Total Salary (Expense) */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 p-3 bg-red-100 rounded-lg">
+                <svg className="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="ml-4 min-w-0">
+                <p className="text-sm font-medium text-gray-500">Total Salary</p>
+                <p className="text-xl font-semibold text-red-600 truncate">{formatCurrency(salaryTotals.totalAdjusted, displayCurrency)}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Total Income */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 p-3 bg-green-100 rounded-lg">
+                <svg className="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+              </div>
+              <div className="ml-4 min-w-0">
+                <p className="text-sm font-medium text-gray-500">Total Income</p>
+                <p className="text-xl font-semibold text-green-600 truncate">{formatCurrency(incomeForPeriod.total, displayCurrency)}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Net Profit/Loss */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex items-center">
+              <div className={`flex-shrink-0 p-3 rounded-lg ${incomeForPeriod.total - salaryTotals.totalAdjusted >= 0 ? 'bg-indigo-100' : 'bg-orange-100'}`}>
+                <svg className={`h-6 w-6 ${incomeForPeriod.total - salaryTotals.totalAdjusted >= 0 ? 'text-indigo-600' : 'text-orange-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+              <div className="ml-4 min-w-0">
+                <p className="text-sm font-medium text-gray-500">Net Profit/Loss</p>
+                <p className={`text-xl font-semibold truncate ${incomeForPeriod.total - salaryTotals.totalAdjusted >= 0 ? 'text-indigo-600' : 'text-orange-600'}`}>
+                  {formatCurrency(incomeForPeriod.total - salaryTotals.totalAdjusted, displayCurrency)}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Individual Employee Report */}
       {selectedEmployee && (
         <div className="space-y-6">
@@ -315,71 +445,105 @@ export default function ReportSummary({
               All Employees - {months[selectedMonth - 1]} {selectedYear}
             </h3>
           </div>
-          {loadingAll ? (
-            <div className="text-center py-8 text-gray-500">Loading reports...</div>
+          {loadingAll || incomeLoading ? (
+            <div className="text-center py-8 text-gray-500">Loading data...</div>
           ) : (
             <>
-              {/* Monthly Total Summary Panel */}
-              {(() => {
-                let totalBaseSalary = 0
-                let totalAdjustedSalary = 0
-                let totalSickDays = 0
-
-                validEmployees.forEach((employee) => {
-                  const convertedSalary = convertCurrency(
-                    employee.salary,
-                    employee.currency,
-                    displayCurrency,
-                    rates
-                  )
-                  const report = allEmployeeReports.get(employee.id)
-                  const deduction = report
-                    ? calculateSalaryDeduction(convertedSalary, report)
-                    : { baseSalary: convertedSalary, adjustedSalary: convertedSalary, deductionAmount: 0, sickDays: 0, workdays: 0 }
-
-                  totalBaseSalary += convertedSalary
-                  totalAdjustedSalary += deduction.adjustedSalary
-                  totalSickDays += deduction.sickDays
-                })
-
-                const totalDeduction = totalBaseSalary - totalAdjustedSalary
-
-                return (
-                  <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
-                    <div className="grid grid-cols-4 gap-4">
+              {/* Financial Summary Panel - Expenses vs Income */}
+              <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Expenses Section */}
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide flex items-center">
+                      <span className="w-2 h-2 bg-red-500 rounded-full mr-2"></span>
+                      Expenses
+                    </h4>
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <div className="text-sm text-gray-500">Employees</div>
+                        <div className="text-xs text-gray-500">Employees</div>
                         <div className="text-lg font-semibold">{validEmployees.length}</div>
                       </div>
-                      <div>
-                        <div className="text-sm text-gray-500">Base Salary</div>
-                        <div className="text-lg font-semibold">{formatCurrency(totalBaseSalary, displayCurrency)}</div>
+                      <div className="min-w-0">
+                        <div className="text-xs text-gray-500">Base Salary</div>
+                        <div className="text-lg font-semibold truncate">{formatCurrency(salaryTotals.totalBase, displayCurrency)}</div>
                       </div>
                       <div>
-                        <div className="text-sm text-gray-500">Sick Days</div>
+                        <div className="text-xs text-gray-500">Sick Days</div>
                         <div className="text-lg font-semibold">
-                          {totalSickDays > 0 ? (
+                          {salaryTotals.totalSickDays > 0 ? (
                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                              {totalSickDays}
+                              {salaryTotals.totalSickDays}
                             </span>
                           ) : (
                             <span className="text-gray-400">0</span>
                           )}
                         </div>
                       </div>
-                      <div>
-                        <div className="text-sm text-gray-500">Adjusted Salary</div>
-                        <div className="text-lg font-semibold text-primary-600">
-                          {formatCurrency(totalAdjustedSalary, displayCurrency)}
+                      <div className="min-w-0">
+                        <div className="text-xs text-gray-500">Adjusted Salary</div>
+                        <div className="text-lg font-semibold text-red-600 truncate">
+                          {formatCurrency(salaryTotals.totalAdjusted, displayCurrency)}
                         </div>
-                        {totalDeduction > 0 && (
-                          <div className="text-xs text-red-600">-{formatCurrency(totalDeduction, displayCurrency)}</div>
+                        {salaryTotals.totalDeduction > 0 && (
+                          <div className="text-xs text-green-600">-{formatCurrency(salaryTotals.totalDeduction, displayCurrency)} saved</div>
                         )}
                       </div>
                     </div>
                   </div>
-                )
-              })()}
+
+                  {/* Income Section */}
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide flex items-center">
+                      <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                      Income
+                    </h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs text-gray-500">Consultant Fees</div>
+                        <div className="text-lg font-semibold text-indigo-600 truncate">
+                          {formatCurrency(incomeForPeriod.consultant, displayCurrency)}
+                        </div>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs text-gray-500">Ad Revenue</div>
+                        <div className="text-lg font-semibold text-green-600 truncate">
+                          {formatCurrency(incomeForPeriod.ads, displayCurrency)}
+                        </div>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs text-gray-500">IAP Revenue</div>
+                        <div className="text-lg font-semibold text-purple-600 truncate">
+                          {formatCurrency(incomeForPeriod.iap, displayCurrency)}
+                        </div>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs text-gray-500">Total Income</div>
+                        <div className="text-lg font-semibold text-green-600 truncate">
+                          {formatCurrency(incomeForPeriod.total, displayCurrency)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Net Summary Bar */}
+                {(() => {
+                  const netAmount = incomeForPeriod.total - salaryTotals.totalAdjusted
+                  const isProfit = netAmount >= 0
+                  return (
+                    <div className={`mt-4 p-3 rounded-lg ${isProfit ? 'bg-indigo-50' : 'bg-orange-50'}`}>
+                      <div className="flex justify-between items-center">
+                        <span className={`text-sm font-medium ${isProfit ? 'text-indigo-700' : 'text-orange-700'}`}>
+                          {months[selectedMonth - 1]} {selectedYear} Net {isProfit ? 'Profit' : 'Loss'}
+                        </span>
+                        <span className={`text-xl font-bold ${isProfit ? 'text-indigo-600' : 'text-orange-600'}`}>
+                          {isProfit ? '+' : ''}{formatCurrency(netAmount, displayCurrency)}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
