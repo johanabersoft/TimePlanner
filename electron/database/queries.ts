@@ -128,7 +128,13 @@ export async function getAttendanceByEmployee(employeeId: number, month?: string
     .eq('employee_id', employeeId)
 
   if (month) {
-    query = query.like('date', `${month}%`).order('date')
+    // Use date range filter instead of LIKE for PostgreSQL DATE columns
+    // month is expected in format 'YYYY-MM'
+    const [year, mon] = month.split('-')
+    const lastDay = new Date(parseInt(year), parseInt(mon), 0).getDate()
+    const monthStart = `${month}-01`
+    const monthEnd = `${month}-${String(lastDay).padStart(2, '0')}`
+    query = query.gte('date', monthStart).lte('date', monthEnd).order('date')
   } else {
     query = query.order('date', { ascending: false })
   }
@@ -292,13 +298,17 @@ export async function getMonthlyAttendanceReport(
   month: number
 ): Promise<AttendanceReport> {
   const supabase = getSupabase()
-  const monthStr = `${year}-${String(month).padStart(2, '0')}`
+  // Use date range filter instead of LIKE for PostgreSQL DATE columns
+  const lastDay = new Date(year, month, 0).getDate()
+  const monthStart = `${year}-${String(month).padStart(2, '0')}-01`
+  const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
 
   const { data, error } = await supabase
     .from('attendance')
     .select('status')
     .eq('employee_id', employeeId)
-    .like('date', `${monthStr}%`)
+    .gte('date', monthStart)
+    .lte('date', monthEnd)
 
   if (error) throw error
 
@@ -317,12 +327,16 @@ export async function getMonthlyAttendanceReport(
 
 export async function getYearlyAttendanceReport(employeeId: number, year: number): Promise<AttendanceReport> {
   const supabase = getSupabase()
+  // Use date range filter instead of LIKE for PostgreSQL DATE columns
+  const yearStart = `${year}-01-01`
+  const yearEnd = `${year}-12-31`
 
   const { data, error } = await supabase
     .from('attendance')
     .select('status')
     .eq('employee_id', employeeId)
-    .like('date', `${year}%`)
+    .gte('date', yearStart)
+    .lte('date', yearEnd)
 
   if (error) throw error
 
@@ -376,13 +390,16 @@ export async function getSmartMonthlyAttendanceReport(
   const workdays = countWeekdays(startDate, effectiveEndDate)
 
   const supabase = getSupabase()
-  const monthStr = `${year}-${String(month).padStart(2, '0')}`
+  // Use date range filter instead of LIKE for PostgreSQL DATE columns
+  const monthStart = `${year}-${String(month).padStart(2, '0')}-01`
+  const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`
 
   const { data, error } = await supabase
     .from('attendance')
     .select('status')
     .eq('employee_id', employeeId)
-    .like('date', `${monthStr}%`)
+    .gte('date', monthStart)
+    .lte('date', monthEnd)
     .in('status', ['sick', 'vacation'])
 
   if (error) throw error
@@ -414,12 +431,16 @@ export async function getSmartYearlyAttendanceReport(
   const workdays = countWeekdays(startDate, effectiveEndDate)
 
   const supabase = getSupabase()
+  // Use date range filter instead of LIKE for PostgreSQL DATE columns
+  const yearStart = `${year}-01-01`
+  const yearEnd = `${year}-12-31`
 
   const { data, error } = await supabase
     .from('attendance')
     .select('status')
     .eq('employee_id', employeeId)
-    .like('date', `${year}%`)
+    .gte('date', yearStart)
+    .lte('date', yearEnd)
     .in('status', ['sick', 'vacation'])
 
   if (error) throw error
@@ -474,4 +495,317 @@ export async function updateCurrencyRates(
 
     if (error) throw error
   }
+}
+
+// ============================================
+// Income Queries
+// ============================================
+
+interface ConsultantContract {
+  id: number
+  company_name: string
+  monthly_fee: number
+  currency: string
+  start_date: string
+  is_active: boolean
+  created_at: string
+  employees?: Employee[]
+}
+
+interface AdRevenue {
+  id: number
+  year: number
+  month: number
+  amount: number
+  currency: string
+  notes: string | null
+  created_at: string
+}
+
+interface IapRevenue {
+  id: number
+  platform: 'ios' | 'android'
+  year: number
+  month: number
+  amount: number
+  currency: string
+  created_at: string
+}
+
+// Consultant Contract queries
+export async function getConsultantContracts(): Promise<ConsultantContract[]> {
+  const supabase = getSupabase()
+
+  // Get contracts
+  const { data: contracts, error } = await supabase
+    .from('consultant_contracts')
+    .select('*')
+    .order('company_name')
+
+  if (error) throw error
+
+  // Get contract employees
+  const { data: contractEmployees, error: ceError } = await supabase
+    .from('contract_employees')
+    .select(`
+      contract_id,
+      employee_id,
+      employees (id, name, position, salary, currency, start_date, created_at)
+    `)
+
+  if (ceError) throw ceError
+
+  // Map employees to contracts
+  const contractMap = new Map<number, Employee[]>()
+  for (const ce of contractEmployees || []) {
+    const emp = ce.employees as unknown as Employee
+    if (!contractMap.has(ce.contract_id)) {
+      contractMap.set(ce.contract_id, [])
+    }
+    contractMap.get(ce.contract_id)!.push(emp)
+  }
+
+  return (contracts || []).map(c => ({
+    ...c,
+    employees: contractMap.get(c.id) || []
+  }))
+}
+
+export async function getConsultantContract(id: number): Promise<ConsultantContract | undefined> {
+  const supabase = getSupabase()
+
+  const { data: contract, error } = await supabase
+    .from('consultant_contracts')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (error && error.code !== 'PGRST116') throw error
+  if (!contract) return undefined
+
+  // Get employees for this contract
+  const { data: contractEmployees, error: ceError } = await supabase
+    .from('contract_employees')
+    .select(`
+      employees (id, name, position, salary, currency, start_date, created_at)
+    `)
+    .eq('contract_id', id)
+
+  if (ceError) throw ceError
+
+  const employees = (contractEmployees || []).map(ce => ce.employees as unknown as Employee)
+
+  return { ...contract, employees }
+}
+
+export async function createConsultantContract(
+  contract: Omit<ConsultantContract, 'id' | 'created_at' | 'employees'> & { employee_ids?: number[] }
+): Promise<ConsultantContract> {
+  const supabase = getSupabase()
+
+  const { employee_ids, ...contractData } = contract
+
+  const { data, error } = await supabase
+    .from('consultant_contracts')
+    .insert({
+      company_name: contractData.company_name,
+      monthly_fee: contractData.monthly_fee,
+      currency: contractData.currency,
+      start_date: contractData.start_date,
+      is_active: contractData.is_active ?? true
+    })
+    .select()
+    .single()
+
+  if (error) throw error
+
+  // Add employee links
+  if (employee_ids && employee_ids.length > 0) {
+    const links = employee_ids.map(eid => ({ contract_id: data.id, employee_id: eid }))
+    const { error: linkError } = await supabase
+      .from('contract_employees')
+      .insert(links)
+
+    if (linkError) throw linkError
+  }
+
+  return getConsultantContract(data.id) as Promise<ConsultantContract>
+}
+
+export async function updateConsultantContract(
+  id: number,
+  contract: Partial<Omit<ConsultantContract, 'id' | 'created_at' | 'employees'> & { employee_ids?: number[] }>
+): Promise<ConsultantContract | undefined> {
+  const supabase = getSupabase()
+
+  const { employee_ids, ...updateData } = contract
+
+  if (Object.keys(updateData).length > 0) {
+    const { error } = await supabase
+      .from('consultant_contracts')
+      .update(updateData)
+      .eq('id', id)
+
+    if (error) throw error
+  }
+
+  // Update employee links if provided
+  if (employee_ids !== undefined) {
+    // Delete existing links
+    await supabase
+      .from('contract_employees')
+      .delete()
+      .eq('contract_id', id)
+
+    // Add new links
+    if (employee_ids.length > 0) {
+      const links = employee_ids.map(eid => ({ contract_id: id, employee_id: eid }))
+      const { error: linkError } = await supabase
+        .from('contract_employees')
+        .insert(links)
+
+      if (linkError) throw linkError
+    }
+  }
+
+  return getConsultantContract(id)
+}
+
+export async function deleteConsultantContract(id: number): Promise<boolean> {
+  const supabase = getSupabase()
+
+  const existing = await getConsultantContract(id)
+  if (!existing) return false
+
+  const { error } = await supabase
+    .from('consultant_contracts')
+    .delete()
+    .eq('id', id)
+
+  if (error) throw error
+  return true
+}
+
+// Ad Revenue queries
+export async function getAdRevenue(year?: number): Promise<AdRevenue[]> {
+  const supabase = getSupabase()
+
+  let query = supabase
+    .from('ad_revenue')
+    .select('*')
+    .order('year', { ascending: false })
+    .order('month', { ascending: false })
+
+  if (year) {
+    query = query.eq('year', year)
+  }
+
+  const { data, error } = await query
+
+  if (error) throw error
+  return data || []
+}
+
+export async function setAdRevenue(revenue: Omit<AdRevenue, 'id' | 'created_at'>): Promise<AdRevenue> {
+  const supabase = getSupabase()
+
+  const { data, error } = await supabase
+    .from('ad_revenue')
+    .upsert(
+      {
+        year: revenue.year,
+        month: revenue.month,
+        amount: revenue.amount,
+        currency: revenue.currency,
+        notes: revenue.notes || null
+      },
+      { onConflict: 'year,month' }
+    )
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export async function deleteAdRevenue(id: number): Promise<boolean> {
+  const supabase = getSupabase()
+
+  const { data: existing } = await supabase
+    .from('ad_revenue')
+    .select('id')
+    .eq('id', id)
+    .single()
+
+  if (!existing) return false
+
+  const { error } = await supabase
+    .from('ad_revenue')
+    .delete()
+    .eq('id', id)
+
+  if (error) throw error
+  return true
+}
+
+// IAP Revenue queries
+export async function getIapRevenue(year?: number): Promise<IapRevenue[]> {
+  const supabase = getSupabase()
+
+  let query = supabase
+    .from('iap_revenue')
+    .select('*')
+    .order('year', { ascending: false })
+    .order('month', { ascending: false })
+
+  if (year) {
+    query = query.eq('year', year)
+  }
+
+  const { data, error } = await query
+
+  if (error) throw error
+  return data || []
+}
+
+export async function setIapRevenue(revenue: Omit<IapRevenue, 'id' | 'created_at'>): Promise<IapRevenue> {
+  const supabase = getSupabase()
+
+  const { data, error } = await supabase
+    .from('iap_revenue')
+    .upsert(
+      {
+        platform: revenue.platform,
+        year: revenue.year,
+        month: revenue.month,
+        amount: revenue.amount,
+        currency: revenue.currency
+      },
+      { onConflict: 'platform,year,month' }
+    )
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export async function deleteIapRevenue(id: number): Promise<boolean> {
+  const supabase = getSupabase()
+
+  const { data: existing } = await supabase
+    .from('iap_revenue')
+    .select('id')
+    .eq('id', id)
+    .single()
+
+  if (!existing) return false
+
+  const { error } = await supabase
+    .from('iap_revenue')
+    .delete()
+    .eq('id', id)
+
+  if (error) throw error
+  return true
 }

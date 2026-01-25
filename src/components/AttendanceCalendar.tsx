@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Employee, Attendance, AttendanceStatus, AttendanceViewMode, DailyAttendanceEntry } from '../types'
+import { Employee, Attendance, AttendanceStatus, AttendanceViewMode, DailyAttendanceEntry, VacationBalance } from '../types'
 import { useAttendance } from '../hooks/useAttendance'
 
 interface AttendanceCalendarProps {
@@ -37,12 +37,19 @@ export default function AttendanceCalendar({
   const [dailyEntries, setDailyEntries] = useState<DailyAttendanceEntry[]>([])
   const [dailyLoading, setDailyLoading] = useState(false)
 
+  // Vacation balance state
+  const [vacationBalances, setVacationBalances] = useState<Map<number, VacationBalance>>(new Map())
+  const [selectedEmployeeVacationBalance, setSelectedEmployeeVacationBalance] = useState<VacationBalance | null>(null)
+  const [showVacationWarning, setShowVacationWarning] = useState(false)
+  const [pendingVacationAction, setPendingVacationAction] = useState<{ employeeId: number; employeeName: string } | null>(null)
+
   const {
     attendance,
     fetchByEmployee,
     fetchAllEmployeesForDate,
     setAttendance,
-    loading
+    loading,
+    getVacationBalance
   } = useAttendance()
 
   // Filter out any undefined/null employees
@@ -93,6 +100,41 @@ export default function AttendanceCalendar({
     fetchDailyData()
   }, [fetchDailyData])
 
+  // Fetch vacation balance for selected employee in month view
+  useEffect(() => {
+    if (viewMode === 'month' && selectedEmployee) {
+      const fetchBalance = async () => {
+        const balance = await getVacationBalance(selectedEmployee.id, year)
+        setSelectedEmployeeVacationBalance(balance)
+      }
+      fetchBalance()
+    } else {
+      setSelectedEmployeeVacationBalance(null)
+    }
+  }, [viewMode, selectedEmployee, year, getVacationBalance])
+
+  // Fetch vacation balances for all employees in daily view
+  useEffect(() => {
+    if (viewMode === 'daily' && dailyEntries.length > 0) {
+      const fetchAllBalances = async () => {
+        const balanceMap = new Map<number, VacationBalance>()
+        const currentYear = currentDate.getFullYear()
+
+        await Promise.all(
+          dailyEntries.map(async (entry) => {
+            const balance = await getVacationBalance(entry.employee_id, currentYear)
+            if (balance) {
+              balanceMap.set(entry.employee_id, balance)
+            }
+          })
+        )
+
+        setVacationBalances(balanceMap)
+      }
+      fetchAllBalances()
+    }
+  }, [viewMode, dailyEntries, currentDate, getVacationBalance])
+
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const firstDayOfMonth = new Date(year, month, 1).getDay()
 
@@ -137,8 +179,19 @@ export default function AttendanceCalendar({
     setSelectedDate(dateStr)
   }
 
-  const handleSetStatus = async (status: AttendanceStatus) => {
+  const handleSetStatus = async (status: AttendanceStatus, skipWarning = false) => {
     if (!selectedEmployee || !selectedDate) return
+
+    // Check vacation balance before setting vacation status
+    if (status === 'vacation' && !skipWarning) {
+      const currentRecord = getAttendanceForDate(selectedDate)
+      if (selectedEmployeeVacationBalance && selectedEmployeeVacationBalance.remaining <= 0 && currentRecord?.status !== 'vacation') {
+        // Show warning modal
+        setPendingVacationAction({ employeeId: selectedEmployee.id, employeeName: selectedEmployee.name })
+        setShowVacationWarning(true)
+        return
+      }
+    }
 
     await setAttendance({
       employee_id: selectedEmployee.id,
@@ -147,10 +200,37 @@ export default function AttendanceCalendar({
       notes: ''
     })
     setSelectedDate(null)
+
+    // Refresh vacation balance for this employee
+    if (status === 'vacation') {
+      const updatedBalance = await getVacationBalance(selectedEmployee.id, year)
+      setSelectedEmployeeVacationBalance(updatedBalance)
+    }
+  }
+
+  // Handle vacation warning modal actions for month view
+  const handleMonthVacationWarningConfirm = () => {
+    if (pendingVacationAction && selectedEmployee && selectedDate) {
+      handleSetStatus('vacation', true)
+    }
+    setShowVacationWarning(false)
+    setPendingVacationAction(null)
   }
 
   // Handle status change in daily view
-  const handleDailyStatusChange = async (employeeId: number, status: AttendanceStatus | null) => {
+  const handleDailyStatusChange = async (employeeId: number, status: AttendanceStatus | null, skipWarning = false) => {
+    // Check vacation balance before setting vacation status
+    if (status === 'vacation' && !skipWarning) {
+      const balance = vacationBalances.get(employeeId)
+      const entry = dailyEntries.find(e => e.employee_id === employeeId)
+      if (balance && balance.remaining <= 0 && entry?.status !== 'vacation') {
+        // Show warning modal
+        setPendingVacationAction({ employeeId, employeeName: entry?.employee_name || 'Employee' })
+        setShowVacationWarning(true)
+        return
+      }
+    }
+
     const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`
 
     // Update optimistically
@@ -173,8 +253,30 @@ export default function AttendanceCalendar({
       })
     }
 
-    // Refresh data
+    // Refresh data and update vacation balances
     fetchDailyData()
+
+    // Refresh vacation balance for this employee
+    if (status === 'vacation' || status === null) {
+      const updatedBalance = await getVacationBalance(employeeId, currentDate.getFullYear())
+      if (updatedBalance) {
+        setVacationBalances(prev => new Map(prev).set(employeeId, updatedBalance))
+      }
+    }
+  }
+
+  // Handle vacation warning modal actions
+  const handleVacationWarningConfirm = () => {
+    if (pendingVacationAction) {
+      handleDailyStatusChange(pendingVacationAction.employeeId, 'vacation', true)
+    }
+    setShowVacationWarning(false)
+    setPendingVacationAction(null)
+  }
+
+  const handleVacationWarningCancel = () => {
+    setShowVacationWarning(false)
+    setPendingVacationAction(null)
   }
 
   // Get effective status for daily view (with smart defaults)
@@ -183,6 +285,13 @@ export default function AttendanceCalendar({
     // Smart default: weekdays are "worked" by default
     if (isWeekday(currentDate)) return 'default'
     return 'default' // Weekend with no status shows as empty/default
+  }
+
+  // Get vacation badge color based on remaining days
+  const getVacationBadgeColor = (balance: VacationBalance): string => {
+    if (balance.remaining <= 0) return 'bg-red-100 text-red-700 border-red-300'
+    if (balance.remaining <= 3) return 'bg-yellow-100 text-yellow-700 border-yellow-300'
+    return 'bg-blue-100 text-blue-700 border-blue-300'
   }
 
   // Calculate daily summary
@@ -330,6 +439,7 @@ export default function AttendanceCalendar({
           <div className="divide-y divide-gray-200">
             {dailyEntries.map((entry) => {
               const effectiveStatus = getEffectiveStatus(entry)
+              const balance = vacationBalances.get(entry.employee_id)
 
               return (
                 <div key={entry.employee_id} className="p-4 flex items-center justify-between hover:bg-gray-50">
@@ -339,7 +449,14 @@ export default function AttendanceCalendar({
                     </div>
                     <div>
                       <div className="font-medium text-gray-900">{entry.employee_name}</div>
-                      <div className="text-sm text-gray-500">{entry.position}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-500">{entry.position}</span>
+                        {balance && (
+                          <span className={`text-xs px-2 py-0.5 rounded border ${getVacationBadgeColor(balance)}`}>
+                            {balance.remaining}/{balance.allowance} vacation
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -449,6 +566,45 @@ export default function AttendanceCalendar({
           ))}
         </select>
       </div>
+
+      {/* Vacation Balance Card */}
+      {selectedEmployee && selectedEmployeeVacationBalance && (
+        <div className="bg-white rounded-lg shadow p-4">
+          <h4 className="text-sm font-medium text-gray-700 mb-3">
+            Vacation Balance ({selectedEmployeeVacationBalance.year})
+          </h4>
+          <div className="flex items-center gap-4">
+            <div className="flex-1">
+              <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    selectedEmployeeVacationBalance.remaining <= 0
+                      ? 'bg-red-500'
+                      : selectedEmployeeVacationBalance.remaining <= 3
+                      ? 'bg-yellow-500'
+                      : 'bg-blue-500'
+                  }`}
+                  style={{ width: `${(selectedEmployeeVacationBalance.remaining / selectedEmployeeVacationBalance.allowance) * 100}%` }}
+                />
+              </div>
+            </div>
+            <div className="text-right">
+              <div className={`text-lg font-semibold ${
+                selectedEmployeeVacationBalance.remaining <= 0
+                  ? 'text-red-600'
+                  : selectedEmployeeVacationBalance.remaining <= 3
+                  ? 'text-yellow-600'
+                  : 'text-blue-600'
+              }`}>
+                {selectedEmployeeVacationBalance.remaining} remaining
+              </div>
+              <div className="text-sm text-gray-500">
+                {selectedEmployeeVacationBalance.used} used of {selectedEmployeeVacationBalance.allowance}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Calendar */}
       <div className="bg-white rounded-lg shadow">
@@ -587,6 +743,43 @@ export default function AttendanceCalendar({
 
       {/* Render appropriate view */}
       {viewMode === 'daily' ? renderDailyView() : renderMonthView()}
+
+      {/* Vacation Warning Modal */}
+      {showVacationWarning && pendingVacationAction && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
+                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-medium text-gray-900">
+                Vacation Allowance Exhausted
+              </h3>
+            </div>
+            <p className="text-sm text-gray-600 mb-6">
+              <strong>{pendingVacationAction.employeeName}</strong> has used all 14 vacation days for this year.
+              Do you still want to mark this day as vacation?
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleVacationWarningCancel}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={viewMode === 'month' ? handleMonthVacationWarningConfirm : handleVacationWarningConfirm}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Set Vacation Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

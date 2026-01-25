@@ -166,3 +166,50 @@ ipcMain.handle('currency:fetchLatest', async () => {
     return { success: false, error: 'Failed to fetch rates' }
   }
 })
+
+// Income IPC handlers - Consultant Contracts
+ipcMain.handle('income:getContracts', () => {
+  return queries.getConsultantContracts()
+})
+
+ipcMain.handle('income:getContract', (_, id: number) => {
+  return queries.getConsultantContract(id)
+})
+
+ipcMain.handle('income:createContract', (_, contract) => {
+  return queries.createConsultantContract(contract)
+})
+
+ipcMain.handle('income:updateContract', (_, id: number, contract) => {
+  return queries.updateConsultantContract(id, contract)
+})
+
+ipcMain.handle('income:deleteContract', (_, id: number) => {
+  return queries.deleteConsultantContract(id)
+})
+
+// Income IPC handlers - Ad Revenue
+ipcMain.handle('income:getAdRevenue', (_, year?: number) => {
+  return queries.getAdRevenue(year)
+})
+
+ipcMain.handle('income:setAdRevenue', (_, revenue) => {
+  return queries.setAdRevenue(revenue)
+})
+
+ipcMain.handle('income:deleteAdRevenue', (_, id: number) => {
+  return queries.deleteAdRevenue(id)
+})
+
+// Income IPC handlers - IAP
+ipcMain.handle('income:getIapRevenue', (_, year?: number) => {
+  return queries.getIapRevenue(year)
+})
+
+ipcMain.handle('income:setIapRevenue', (_, revenue) => {
+  return queries.setIapRevenue(revenue)
+})
+
+ipcMain.handle('income:deleteIapRevenue', (_, id: number) => {
+  return queries.deleteIapRevenue(id)
+})

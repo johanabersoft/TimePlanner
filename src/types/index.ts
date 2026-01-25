@@ -54,6 +54,14 @@ export interface SmartAttendanceReport {
   vacation: number      // Days explicitly marked vacation
 }
 
+// Vacation balance tracking
+export interface VacationBalance {
+  allowance: number    // Always 14
+  used: number         // Days taken this year
+  remaining: number    // 14 - used
+  year: number
+}
+
 // Daily attendance view types
 export interface DailyAttendanceEntry {
   employee_id: number
@@ -91,7 +99,74 @@ export interface CurrencyRateInput {
 }
 
 // Navigation types
-export type View = 'employees' | 'attendance' | 'salaries' | 'reports'
+export type View = 'employees' | 'attendance' | 'salaries' | 'reports' | 'income'
+
+// Income types
+export type Platform = 'ios' | 'android'
+
+export interface ConsultantContract {
+  id: number
+  company_name: string
+  monthly_fee: number
+  currency: Currency
+  start_date: string
+  is_active: boolean
+  created_at: string
+  employees?: Employee[]
+}
+
+export interface ConsultantContractInput {
+  company_name: string
+  monthly_fee: number
+  currency: Currency
+  start_date: string
+  is_active?: boolean
+  employee_ids?: number[]
+}
+
+export interface AdRevenue {
+  id: number
+  year: number
+  month: number
+  amount: number
+  currency: Currency
+  notes: string | null
+  created_at: string
+}
+
+export interface AdRevenueInput {
+  year: number
+  month: number
+  amount: number
+  currency: Currency
+  notes?: string
+}
+
+export interface IapRevenue {
+  id: number
+  platform: Platform
+  year: number
+  month: number
+  amount: number
+  currency: Currency
+  created_at: string
+}
+
+export interface IapRevenueInput {
+  platform: Platform
+  year: number
+  month: number
+  amount: number
+  currency: Currency
+}
+
+export interface IncomeSummary {
+  consultantTotal: number
+  adRevenueTotal: number
+  iapTotal: number
+  grandTotal: number
+  currency: Currency
+}
 
 // Electron API types
 export interface ElectronAPI {
@@ -119,6 +194,22 @@ export interface ElectronAPI {
     getRates: () => Promise<CurrencyRate[]>
     updateRates: (rates: CurrencyRateInput[]) => Promise<void>
     fetchLatest: () => Promise<{ success: boolean; rates?: CurrencyRateInput[]; error?: string }>
+  }
+  income: {
+    // Consultant contracts
+    getContracts: () => Promise<ConsultantContract[]>
+    getContract: (id: number) => Promise<ConsultantContract | undefined>
+    createContract: (contract: ConsultantContractInput) => Promise<ConsultantContract>
+    updateContract: (id: number, contract: Partial<ConsultantContractInput>) => Promise<ConsultantContract | undefined>
+    deleteContract: (id: number) => Promise<boolean>
+    // Ad revenue
+    getAdRevenue: (year?: number) => Promise<AdRevenue[]>
+    setAdRevenue: (revenue: AdRevenueInput) => Promise<AdRevenue>
+    deleteAdRevenue: (id: number) => Promise<boolean>
+    // IAP
+    getIapRevenue: (year?: number) => Promise<IapRevenue[]>
+    setIapRevenue: (revenue: IapRevenueInput) => Promise<IapRevenue>
+    deleteIapRevenue: (id: number) => Promise<boolean>
   }
 }
 

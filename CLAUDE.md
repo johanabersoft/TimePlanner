@@ -7,7 +7,7 @@ Employee management and attendance tracking desktop application built with Elect
 - **Frontend**: React 18 + TypeScript + Vite
 - **Desktop**: Electron 33
 - **Styling**: Tailwind CSS
-- **Database**: SQLite (via sql.js, persisted to user's AppData)
+- **Database**: Supabase (PostgreSQL cloud database)
 - **Build**: electron-builder
 
 ## Project Structure
@@ -18,7 +18,7 @@ TimePlanner/
 │   ├── main.ts              # Main entry, window creation, IPC handlers
 │   ├── preload.ts           # Exposes API to renderer via contextBridge
 │   └── database/
-│       ├── db.ts            # SQLite initialization and persistence
+│       ├── supabase.ts      # Supabase client initialization
 │       └── queries.ts       # All database query functions
 ├── src/                      # React frontend (renderer process)
 │   ├── App.tsx              # Main app with navigation
@@ -27,15 +27,22 @@ TimePlanner/
 │   │   ├── EmployeeList.tsx        # Employee list display
 │   │   ├── EmployeeForm.tsx        # Add/edit employee modal
 │   │   ├── ReportSummary.tsx       # Attendance reports with smart defaults
-│   │   └── SalaryDisplay.tsx       # Salary overview
+│   │   ├── SalaryDisplay.tsx       # Salary overview
+│   │   ├── IncomeSummary.tsx       # Income dashboard with totals
+│   │   ├── ConsultantFeesDetail.tsx # Consultant contract management
+│   │   ├── AdRevenueDetail.tsx     # Monthly ad revenue tracking
+│   │   ├── IapRevenueDetail.tsx    # IAP revenue by platform
+│   │   └── IncomeChart.tsx         # Income visualization chart
 │   ├── hooks/
 │   │   ├── useAttendance.ts        # Attendance data operations
 │   │   ├── useEmployees.ts         # Employee CRUD operations
-│   │   └── useCurrency.ts          # Currency conversion
+│   │   ├── useCurrency.ts          # Currency conversion
+│   │   └── useIncome.ts            # Income data operations
 │   ├── types/
 │   │   └── index.ts                # TypeScript interfaces
 │   └── utils/
-│       └── currency.ts             # Currency formatting/conversion
+│       ├── currency.ts             # Currency formatting/conversion
+│       └── salary.ts               # Salary deduction calculations
 ├── public/
 │   ├── icon.ico             # App icon (multi-size)
 │   ├── icon.png             # PNG icon for Electron
@@ -75,42 +82,106 @@ Two view modes available:
 - Smart calculation based on weekdays only
 - Visual progress bars showing worked/sick/vacation breakdown
 
+### Salary Deductions
+- Automatic salary adjustment for sick days
+- Formula: `adjustedSalary = baseSalary × (workdays - sickDays) / workdays`
+- Vacation days are NOT deducted (paid leave)
+- All-employees monthly view shows deductions summary
+
+### Income Tracking
+Track multiple revenue streams with currency conversion:
+
+1. **Consultant Fees**: Monthly retainer contracts
+   - Company name, monthly fee, currency
+   - Link employees to contracts
+   - Active/inactive status
+
+2. **Ad Revenue**: Monthly advertising income
+   - Track by month/year
+   - Notes field for details
+
+3. **In-App Purchases**: Revenue by platform
+   - iOS (App Store) and Android (Google Play)
+   - Monthly tracking with platform breakdown
+   - Summary cards show last month, 3 months, and yearly totals
+
 ## Database Schema
 
 ```sql
 -- Employees table
 CREATE TABLE employees (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   position TEXT NOT NULL,
-  salary REAL NOT NULL,
+  salary NUMERIC NOT NULL,
   currency TEXT NOT NULL,
-  start_date TEXT NOT NULL,
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  start_date DATE NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Attendance table
 CREATE TABLE attendance (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  employee_id INTEGER NOT NULL,
-  date TEXT NOT NULL,
+  id SERIAL PRIMARY KEY,
+  employee_id INTEGER NOT NULL REFERENCES employees(id),
+  date DATE NOT NULL,
   status TEXT NOT NULL,  -- 'worked', 'sick', 'vacation'
   notes TEXT,
-  FOREIGN KEY (employee_id) REFERENCES employees(id),
   UNIQUE(employee_id, date)
 );
 
 -- Currency rates table
 CREATE TABLE currency_rates (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   from_curr TEXT NOT NULL,
   to_curr TEXT NOT NULL,
-  rate REAL NOT NULL,
-  updated TEXT DEFAULT CURRENT_TIMESTAMP
+  rate NUMERIC NOT NULL,
+  updated TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Consultant contracts
+CREATE TABLE consultant_contracts (
+  id SERIAL PRIMARY KEY,
+  company_name TEXT NOT NULL,
+  monthly_fee NUMERIC NOT NULL,
+  currency TEXT NOT NULL,
+  start_date DATE NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Contract-employee relationship
+CREATE TABLE contract_employees (
+  contract_id INTEGER REFERENCES consultant_contracts(id) ON DELETE CASCADE,
+  employee_id INTEGER REFERENCES employees(id) ON DELETE CASCADE,
+  PRIMARY KEY (contract_id, employee_id)
+);
+
+-- Ad revenue
+CREATE TABLE ad_revenue (
+  id SERIAL PRIMARY KEY,
+  year INTEGER NOT NULL,
+  month INTEGER NOT NULL,
+  amount NUMERIC NOT NULL,
+  currency TEXT NOT NULL,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(year, month)
+);
+
+-- In-app purchase revenue
+CREATE TABLE iap_revenue (
+  id SERIAL PRIMARY KEY,
+  platform TEXT NOT NULL,  -- 'ios' or 'android'
+  year INTEGER NOT NULL,
+  month INTEGER NOT NULL,
+  amount NUMERIC NOT NULL,
+  currency TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(platform, year, month)
 );
 ```
 
-Database is stored at: `%APPDATA%/timeplanner/timeplanner.db`
+Database is hosted on Supabase cloud (PostgreSQL). Requires internet connection.
 
 ## Development Commands
 
@@ -138,6 +209,7 @@ The app uses Electron's IPC for renderer-to-main communication:
 - `window.electronAPI.employees.*` - Employee CRUD
 - `window.electronAPI.attendance.*` - Attendance operations
 - `window.electronAPI.currency.*` - Currency rates
+- `window.electronAPI.income.*` - Income tracking (contracts, ads, IAP)
 
 All API methods are typed in `src/types/index.ts` under `ElectronAPI`.
 
@@ -158,6 +230,11 @@ The `getSmartMonthlyReport` and `getSmartYearlyReport` functions:
 - `getAllEmployeesForDate(date)` - Single query with LEFT JOIN
 - Returns all employees with their status (null if no record)
 - UI interprets null + weekday as "Worked" (smart default)
+
+### Salary Deductions
+- `calculateSalaryDeduction(baseSalary, report)` in `src/utils/salary.ts`
+- Deducts proportionally for sick days only
+- Vacation days remain paid
 
 ## Color Scheme
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Employee, Currency, CurrencyRate, SmartAttendanceReport } from '../types'
 import { useAttendance } from '../hooks/useAttendance'
 import { convertCurrency, formatCurrency } from '../utils/currency'
@@ -28,8 +28,11 @@ export default function ReportSummary({
 
   const { getSmartMonthlyReport } = useAttendance()
 
-  // Filter out any undefined/null employees
-  const validEmployees = employees.filter((emp): emp is Employee => emp != null && emp.id != null)
+  // Filter out any undefined/null employees - memoize to prevent infinite useEffect loops
+  const validEmployees = useMemo(
+    () => employees.filter((emp): emp is Employee => emp != null && emp.id != null),
+    [employees]
+  )
 
   const currentYear = new Date().getFullYear()
   const years = Array.from({ length: 5 }, (_, i) => currentYear - i)
@@ -316,6 +319,67 @@ export default function ReportSummary({
             <div className="text-center py-8 text-gray-500">Loading reports...</div>
           ) : (
             <>
+              {/* Monthly Total Summary Panel */}
+              {(() => {
+                let totalBaseSalary = 0
+                let totalAdjustedSalary = 0
+                let totalSickDays = 0
+
+                validEmployees.forEach((employee) => {
+                  const convertedSalary = convertCurrency(
+                    employee.salary,
+                    employee.currency,
+                    displayCurrency,
+                    rates
+                  )
+                  const report = allEmployeeReports.get(employee.id)
+                  const deduction = report
+                    ? calculateSalaryDeduction(convertedSalary, report)
+                    : { baseSalary: convertedSalary, adjustedSalary: convertedSalary, deductionAmount: 0, sickDays: 0, workdays: 0 }
+
+                  totalBaseSalary += convertedSalary
+                  totalAdjustedSalary += deduction.adjustedSalary
+                  totalSickDays += deduction.sickDays
+                })
+
+                const totalDeduction = totalBaseSalary - totalAdjustedSalary
+
+                return (
+                  <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+                    <div className="grid grid-cols-4 gap-4">
+                      <div>
+                        <div className="text-sm text-gray-500">Employees</div>
+                        <div className="text-lg font-semibold">{validEmployees.length}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-gray-500">Base Salary</div>
+                        <div className="text-lg font-semibold">{formatCurrency(totalBaseSalary, displayCurrency)}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-gray-500">Sick Days</div>
+                        <div className="text-lg font-semibold">
+                          {totalSickDays > 0 ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                              {totalSickDays}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">0</span>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-gray-500">Adjusted Salary</div>
+                        <div className="text-lg font-semibold text-primary-600">
+                          {formatCurrency(totalAdjustedSalary, displayCurrency)}
+                        </div>
+                        {totalDeduction > 0 && (
+                          <div className="text-xs text-red-600">-{formatCurrency(totalDeduction, displayCurrency)}</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
@@ -398,71 +462,6 @@ export default function ReportSummary({
                     )
                   })}
                 </tbody>
-                <tfoot className="bg-gray-100">
-                  {(() => {
-                    let totalBaseSalary = 0
-                    let totalAdjustedSalary = 0
-                    let totalSickDays = 0
-
-                    validEmployees.forEach((employee) => {
-                      const convertedSalary = convertCurrency(
-                        employee.salary,
-                        employee.currency,
-                        displayCurrency,
-                        rates
-                      )
-                      const report = allEmployeeReports.get(employee.id)
-                      const deduction = report
-                        ? calculateSalaryDeduction(convertedSalary, report)
-                        : { baseSalary: convertedSalary, adjustedSalary: convertedSalary, deductionAmount: 0, sickDays: 0, workdays: 0 }
-
-                      totalBaseSalary += convertedSalary
-                      totalAdjustedSalary += deduction.adjustedSalary
-                      totalSickDays += deduction.sickDays
-                    })
-
-                    const totalDeduction = totalBaseSalary - totalAdjustedSalary
-
-                    return (
-                      <tr className="font-semibold">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          Monthly Total
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {validEmployees.length} employee{validEmployees.length !== 1 ? 's' : ''}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                          {formatCurrency(totalBaseSalary, displayCurrency)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
-                          {totalSickDays > 0 ? (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                              {totalSickDays}
-                            </span>
-                          ) : (
-                            <span className="text-gray-400">0</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                          {totalDeduction > 0 ? (
-                            <div>
-                              <span className="font-bold text-primary-600">
-                                {formatCurrency(totalAdjustedSalary, displayCurrency)}
-                              </span>
-                              <span className="block text-xs text-red-600">
-                                -{formatCurrency(totalDeduction, displayCurrency)}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="font-bold text-primary-600">
-                              {formatCurrency(totalAdjustedSalary, displayCurrency)}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })()}
-                </tfoot>
               </table>
               <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
                 <p className="text-sm text-gray-500">

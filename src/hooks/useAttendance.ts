@@ -6,7 +6,8 @@ import {
   AttendanceWithEmployee,
   DailyAttendanceEntry,
   SmartAttendanceReport,
-  AttendanceStatus
+  AttendanceStatus,
+  VacationBalance
 } from '../types'
 
 interface UseAttendanceReturn {
@@ -24,6 +25,7 @@ interface UseAttendanceReturn {
   getYearlyReport: (employeeId: number, year: number) => Promise<AttendanceReport | null>
   getSmartMonthlyReport: (employeeId: number, year: number, month: number) => Promise<SmartAttendanceReport | null>
   getSmartYearlyReport: (employeeId: number, year: number) => Promise<SmartAttendanceReport | null>
+  getVacationBalance: (employeeId: number, year: number) => Promise<VacationBalance | null>
 }
 
 export function useAttendance(): UseAttendanceReturn {
@@ -181,6 +183,27 @@ export function useAttendance(): UseAttendanceReturn {
     }
   }, [])
 
+  const getVacationBalance = useCallback(async (
+    employeeId: number,
+    year: number
+  ): Promise<VacationBalance | null> => {
+    try {
+      setError(null)
+      const report = await window.electronAPI.attendance.getSmartYearlyReport(employeeId, year)
+      if (!report) return null
+      const allowance = 14
+      return {
+        allowance,
+        used: report.vacation,
+        remaining: Math.max(0, allowance - report.vacation),
+        year
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to get vacation balance')
+      return null
+    }
+  }, [])
+
   return {
     attendance,
     loading,
@@ -195,6 +218,7 @@ export function useAttendance(): UseAttendanceReturn {
     getMonthlyReport,
     getYearlyReport,
     getSmartMonthlyReport,
-    getSmartYearlyReport
+    getSmartYearlyReport,
+    getVacationBalance
   }
 }

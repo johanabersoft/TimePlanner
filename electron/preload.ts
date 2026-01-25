@@ -60,5 +60,49 @@ contextBridge.exposeInMainWorld('electronAPI', {
       rate: number
     }>) => ipcRenderer.invoke('currency:updateRates', rates),
     fetchLatest: () => ipcRenderer.invoke('currency:fetchLatest')
+  },
+
+  // Income operations
+  income: {
+    // Consultant contracts
+    getContracts: () => ipcRenderer.invoke('income:getContracts'),
+    getContract: (id: number) => ipcRenderer.invoke('income:getContract', id),
+    createContract: (contract: {
+      company_name: string
+      monthly_fee: number
+      currency: string
+      start_date: string
+      is_active?: boolean
+      employee_ids?: number[]
+    }) => ipcRenderer.invoke('income:createContract', contract),
+    updateContract: (id: number, contract: {
+      company_name?: string
+      monthly_fee?: number
+      currency?: string
+      start_date?: string
+      is_active?: boolean
+      employee_ids?: number[]
+    }) => ipcRenderer.invoke('income:updateContract', id, contract),
+    deleteContract: (id: number) => ipcRenderer.invoke('income:deleteContract', id),
+    // Ad revenue
+    getAdRevenue: (year?: number) => ipcRenderer.invoke('income:getAdRevenue', year),
+    setAdRevenue: (revenue: {
+      year: number
+      month: number
+      amount: number
+      currency: string
+      notes?: string
+    }) => ipcRenderer.invoke('income:setAdRevenue', revenue),
+    deleteAdRevenue: (id: number) => ipcRenderer.invoke('income:deleteAdRevenue', id),
+    // IAP
+    getIapRevenue: (year?: number) => ipcRenderer.invoke('income:getIapRevenue', year),
+    setIapRevenue: (revenue: {
+      platform: 'ios' | 'android'
+      year: number
+      month: number
+      amount: number
+      currency: string
+    }) => ipcRenderer.invoke('income:setIapRevenue', revenue),
+    deleteIapRevenue: (id: number) => ipcRenderer.invoke('income:deleteIapRevenue', id)
   }
 })
