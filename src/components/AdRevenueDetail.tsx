@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { AdRevenue, AdRevenueInput, Currency, CurrencyRate } from '../types'
 import { convertCurrency, formatCurrency } from '../utils/currency'
 
@@ -76,6 +76,43 @@ export default function AdRevenueDetail({
     .filter(r => r.year === new Date().getFullYear())
     .reduce((sum, r) => sum + convertCurrency(r.amount, r.currency, displayCurrency, rates), 0)
 
+  const summaryTotals = useMemo(() => {
+    const now = new Date()
+    const currentYear = now.getFullYear()
+    const currentMonth = now.getMonth() + 1
+
+    // This month (current, possibly incomplete)
+    const thisMonthEntries = revenue.filter(r => r.year === currentYear && r.month === currentMonth)
+    const thisMonthTotal = thisMonthEntries.reduce((sum, r) =>
+      sum + convertCurrency(r.amount, r.currency, displayCurrency, rates), 0)
+
+    // Last month
+    const lastMonth = currentMonth === 1 ? 12 : currentMonth - 1
+    const lastMonthYear = currentMonth === 1 ? currentYear - 1 : currentYear
+    const lastMonthEntries = revenue.filter(r => r.year === lastMonthYear && r.month === lastMonth)
+    const lastMonthTotal = lastMonthEntries.reduce((sum, r) =>
+      sum + convertCurrency(r.amount, r.currency, displayCurrency, rates), 0)
+
+    // Helper for N months back (exclusive of current month)
+    const isWithinMonths = (entry: AdRevenue, months: number) => {
+      const entryDate = new Date(entry.year, entry.month - 1)
+      const cutoff = new Date(currentYear, currentMonth - 1 - months)
+      return entryDate >= cutoff && entryDate < new Date(currentYear, currentMonth - 1)
+    }
+
+    // Last 3 months
+    const last3MonthsEntries = revenue.filter(r => isWithinMonths(r, 3))
+    const last3MonthsTotal = last3MonthsEntries.reduce((sum, r) =>
+      sum + convertCurrency(r.amount, r.currency, displayCurrency, rates), 0)
+
+    // Last 12 months
+    const lastYearEntries = revenue.filter(r => isWithinMonths(r, 12))
+    const lastYearTotal = lastYearEntries.reduce((sum, r) =>
+      sum + convertCurrency(r.amount, r.currency, displayCurrency, rates), 0)
+
+    return { thisMonthTotal, lastMonthTotal, last3MonthsTotal, lastYearTotal }
+  }, [revenue, displayCurrency, rates])
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -105,6 +142,34 @@ export default function AdRevenueDetail({
           </svg>
           Add Entry
         </button>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-sm text-gray-500">This Month</p>
+          <p className="text-xl font-bold text-yellow-600">
+            {formatCurrency(summaryTotals.thisMonthTotal, displayCurrency)}
+          </p>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-sm text-gray-500">Last Month</p>
+          <p className="text-xl font-bold text-yellow-600">
+            {formatCurrency(summaryTotals.lastMonthTotal, displayCurrency)}
+          </p>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-sm text-gray-500">Last 3 Months</p>
+          <p className="text-xl font-bold text-yellow-600">
+            {formatCurrency(summaryTotals.last3MonthsTotal, displayCurrency)}
+          </p>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-sm text-gray-500">Last Year</p>
+          <p className="text-xl font-bold text-yellow-600">
+            {formatCurrency(summaryTotals.lastYearTotal, displayCurrency)}
+          </p>
+        </div>
       </div>
 
       {/* Revenue by Year */}

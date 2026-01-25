@@ -42,16 +42,18 @@ export default function IncomeSummary({ displayCurrency, rates, employees }: Pro
         return sum + converted
       }, 0)
 
-    // Ad revenue - current month
+    // Ad revenue - last month (current month is incomplete)
     const now = new Date()
-    const currentMonth = adRevenue.find(r => r.year === now.getFullYear() && r.month === now.getMonth() + 1)
-    const adTotal = currentMonth
-      ? convertCurrency(currentMonth.amount, currentMonth.currency, displayCurrency, rates)
+    const lastMonth = now.getMonth() === 0 ? 12 : now.getMonth()
+    const lastMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear()
+    const adLastMonth = adRevenue.find(r => r.year === lastMonthYear && r.month === lastMonth)
+    const adTotal = adLastMonth
+      ? convertCurrency(adLastMonth.amount, adLastMonth.currency, displayCurrency, rates)
       : 0
 
-    // IAP revenue - current month, all apps and stores
-    const iapCurrentMonth = iapRevenue.filter(r => r.year === now.getFullYear() && r.month === now.getMonth() + 1)
-    const iapTotal = iapCurrentMonth.reduce((sum, r) => {
+    // IAP revenue - last month (current month is incomplete)
+    const iapLastMonth = iapRevenue.filter(r => r.year === lastMonthYear && r.month === lastMonth)
+    const iapTotal = iapLastMonth.reduce((sum, r) => {
       const converted = convertCurrency(r.amount, r.currency, displayCurrency, rates)
       return sum + converted
     }, 0)
@@ -164,7 +166,7 @@ export default function IncomeSummary({ displayCurrency, rates, employees }: Pro
           <p className="text-2xl font-bold text-green-600 mt-2">
             {formatCurrency(totals.ads, displayCurrency)}
           </p>
-          <p className="text-sm text-gray-500 mt-1">This month</p>
+          <p className="text-sm text-gray-500 mt-1">Last month</p>
         </button>
 
         {/* IAP Revenue Card */}
@@ -186,7 +188,7 @@ export default function IncomeSummary({ displayCurrency, rates, employees }: Pro
           <p className="text-2xl font-bold text-purple-600 mt-2">
             {formatCurrency(totals.iap, displayCurrency)}
           </p>
-          <p className="text-sm text-gray-500 mt-1">This month</p>
+          <p className="text-sm text-gray-500 mt-1">Last month</p>
         </button>
       </div>
 
