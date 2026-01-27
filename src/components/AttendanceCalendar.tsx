@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Employee, Attendance, AttendanceStatus, AttendanceViewMode, DailyAttendanceEntry, VacationBalance } from '../types'
 import { useAttendance } from '../hooks/useAttendance'
+import { MONTHS } from '../utils/currency'
 
 interface AttendanceCalendarProps {
   employees: Employee[]
@@ -138,10 +139,6 @@ export default function AttendanceCalendar({
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const firstDayOfMonth = new Date(year, month, 1).getDay()
 
-  const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ]
 
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -620,7 +617,7 @@ export default function AttendanceCalendar({
               </svg>
             </button>
             <h3 className="text-lg font-semibold text-gray-900">
-              {monthNames[month]} {year}
+              {MONTHS[month]} {year}
             </h3>
             <button
               onClick={goToNextMonth}

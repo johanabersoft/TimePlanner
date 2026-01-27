@@ -462,19 +462,6 @@ export async function getCurrencyRates(): Promise<CurrencyRate[]> {
   return data || []
 }
 
-export async function getCurrencyRate(from: string, to: string): Promise<number | undefined> {
-  const supabase = getSupabase()
-  const { data, error } = await supabase
-    .from('currency_rates')
-    .select('rate')
-    .eq('from_curr', from)
-    .eq('to_curr', to)
-    .single()
-
-  if (error && error.code !== 'PGRST116') throw error
-  return data?.rate
-}
-
 export async function updateCurrencyRates(
   rates: Array<{ from_curr: string; to_curr: string; rate: number }>
 ): Promise<void> {

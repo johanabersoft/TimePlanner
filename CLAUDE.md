@@ -28,7 +28,6 @@ TimePlanner/
 │   │   ├── AttendanceCalendar.tsx  # Month/Daily view attendance tracking
 │   │   ├── EmployeeList.tsx        # Employee list display
 │   │   ├── EmployeeForm.tsx        # Add/edit employee modal
-│   │   ├── ReportSummary.tsx       # Attendance reports with smart defaults
 │   │   ├── SalaryDisplay.tsx       # Salary overview
 │   │   ├── IncomeSummary.tsx       # Income dashboard with totals
 │   │   ├── ConsultantFeesDetail.tsx # Consultant contract management
@@ -57,6 +56,7 @@ TimePlanner/
 ├── public/
 │   ├── icon.ico             # App icon (multi-size)
 │   ├── icon.png             # PNG icon for Electron
+│   ├── icon-256.png         # 256x256 PNG icon
 │   └── icon.svg             # Source SVG icon
 └── release/                  # Built application output
     └── win-unpacked/        # Unpacked Windows build
@@ -89,9 +89,12 @@ Two view modes available:
 - Reports calculate: `worked = workdays - sick - vacation`
 
 ### Reports
-- Monthly and yearly attendance summaries
-- Smart calculation based on weekdays only
-- Visual progress bars showing worked/sick/vacation breakdown
+Modular reports page (`src/components/reports/`) replacing the old single-component ReportSummary:
+- Filter by employee, month, and year via `ReportFilterBar`
+- KPI grid showing key attendance metrics
+- Breakdown cards and chart visualization for worked/sick/vacation
+- Employee attendance table with drill-down detail view
+- Smart calculation based on weekdays only (excludes future dates)
 
 ### Salary Deductions
 - Automatic salary adjustment for sick days
@@ -157,6 +160,7 @@ CREATE TABLE consultant_contracts (
   currency TEXT NOT NULL,
   start_date DATE NOT NULL,
   is_active BOOLEAN DEFAULT true,
+  vat_rate NUMERIC,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -220,7 +224,10 @@ The app uses Electron's IPC for renderer-to-main communication:
 - `window.electronAPI.employees.*` - Employee CRUD
 - `window.electronAPI.attendance.*` - Attendance operations
 - `window.electronAPI.currency.*` - Currency rates
-- `window.electronAPI.income.*` - Income tracking (contracts, ads, IAP)
+- `window.electronAPI.income.*` - Income tracking
+  - `.getContracts()`, `.getContract()`, `.createContract()`, `.updateContract()`, `.deleteContract()` — Consultant contracts
+  - `.getAdRevenue()`, `.setAdRevenue()`, `.deleteAdRevenue()` — Ad revenue
+  - `.getIapRevenue()`, `.setIapRevenue()`, `.deleteIapRevenue()` — In-app purchase revenue
 
 All API methods are typed in `src/types/index.ts` under `ElectronAPI`.
 

@@ -1,4 +1,5 @@
 import { Employee } from '../../types'
+import { MONTHS } from '../../utils/currency'
 
 interface ReportFilterBarProps {
   employees: Employee[]
@@ -13,10 +14,6 @@ interface ReportFilterBarProps {
   onReset: () => void
 }
 
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
-]
 
 export default function ReportFilterBar({
   employees,

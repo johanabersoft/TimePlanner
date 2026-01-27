@@ -12,10 +12,7 @@ export default defineConfig({
         entry: 'electron/main.ts',
         vite: {
           build: {
-            outDir: 'dist-electron',
-            rollupOptions: {
-              external: ['sql.js']
-            }
+            outDir: 'dist-electron'
           }
         }
       },

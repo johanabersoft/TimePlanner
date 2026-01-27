@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { IapRevenue, IapRevenueInput, Currency, CurrencyRate, Platform } from '../types'
-import { convertCurrency, formatCurrency } from '../utils/currency'
+import { convertCurrency, formatCurrency, MONTHS } from '../utils/currency'
 
 interface Props {
   revenue: IapRevenue[]
@@ -11,10 +11,6 @@ interface Props {
   onDelete: (id: number) => Promise<void>
 }
 
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
-]
 
 const PLATFORM_LABELS: Record<Platform, string> = {
   ios: 'iOS',

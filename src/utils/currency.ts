@@ -52,15 +52,6 @@ export function formatCurrency(amount: number, currency: Currency): string {
   return formatters[currency].format(amount)
 }
 
-export function getCurrencySymbol(currency: Currency): string {
-  const symbols: Record<Currency, string> = {
-    IDR: 'Rp',
-    USD: '$',
-    SEK: 'kr'
-  }
-  return symbols[currency]
-}
-
 export function getCurrencyName(currency: Currency): string {
   const names: Record<Currency, string> = {
     IDR: 'Indonesian Rupiah',
@@ -71,3 +62,8 @@ export function getCurrencyName(currency: Currency): string {
 }
 
 export const CURRENCIES: Currency[] = ['USD', 'IDR', 'SEK']
+
+export const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+]

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Employee, Currency, CurrencyRate, SmartAttendanceReport } from '../../types'
 import { useAttendance } from '../../hooks/useAttendance'
 import { useIncome } from '../../hooks/useIncome'
-import { convertCurrency } from '../../utils/currency'
+import { convertCurrency, MONTHS } from '../../utils/currency'
 import { calculateSalaryDeduction } from '../../utils/salary'
 
 import ReportFilterBar from './ReportFilterBar'
@@ -21,10 +21,6 @@ interface ReportPageProps {
   rates: CurrencyRate[]
 }
 
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
-]
 
 export default function ReportPage({
   employees,

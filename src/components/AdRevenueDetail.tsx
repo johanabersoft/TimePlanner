@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { AdRevenue, AdRevenueInput, Currency, CurrencyRate } from '../types'
-import { convertCurrency, formatCurrency } from '../utils/currency'
+import { convertCurrency, formatCurrency, MONTHS } from '../utils/currency'
 
 interface Props {
   revenue: AdRevenue[]
@@ -11,10 +11,6 @@ interface Props {
   onDelete: (id: number) => Promise<void>
 }
 
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
-]
 
 export default function AdRevenueDetail({
   revenue,
