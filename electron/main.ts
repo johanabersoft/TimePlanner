@@ -213,3 +213,24 @@ ipcMain.handle('income:setIapRevenue', (_, revenue) => {
 ipcMain.handle('income:deleteIapRevenue', (_, id: number) => {
   return queries.deleteIapRevenue(id)
 })
+
+// Costs IPC handlers
+ipcMain.handle('costs:getAll', () => {
+  return queries.getAllCosts()
+})
+
+ipcMain.handle('costs:getCategories', () => {
+  return queries.getCostCategories()
+})
+
+ipcMain.handle('costs:create', (_, cost) => {
+  return queries.createCost(cost)
+})
+
+ipcMain.handle('costs:update', (_, id: number, cost) => {
+  return queries.updateCost(id, cost)
+})
+
+ipcMain.handle('costs:delete', (_, id: number) => {
+  return queries.deleteCost(id)
+})

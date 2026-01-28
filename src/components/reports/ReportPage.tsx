@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Employee, Currency, CurrencyRate, SmartAttendanceReport } from '../../types'
 import { useAttendance } from '../../hooks/useAttendance'
 import { useIncome } from '../../hooks/useIncome'
+import { useCosts } from '../../hooks/useCosts'
 import { convertCurrency, MONTHS } from '../../utils/currency'
 import { calculateSalaryDeduction } from '../../utils/salary'
 
@@ -41,6 +42,7 @@ export default function ReportPage({
 
   const { getSmartMonthlyReport } = useAttendance()
   const { contracts, adRevenue, iapRevenue, loading: incomeLoading } = useIncome()
+  const { costs, loading: costsLoading } = useCosts()
 
   // Filter out any undefined/null employees
   const validEmployees = useMemo(
@@ -105,6 +107,30 @@ export default function ReportPage({
       totalDeduction: totalBaseSalary - totalAdjustedSalary
     }
   }, [selectedEmployee, validEmployees, allEmployeeReports, displayCurrency, rates])
+
+  // Calculate operating costs for a given month
+  const getCostsForMonth = useCallback((targetYear: number, targetMonth: number): number => {
+    let total = 0
+    const targetDate = targetYear * 12 + targetMonth
+    for (const cost of costs) {
+      const costDate = cost.year * 12 + cost.month
+      if (cost.is_recurring) {
+        if (cost.is_active && costDate <= targetDate) {
+          total += convertCurrency(cost.amount, cost.currency, displayCurrency, rates)
+        }
+      } else {
+        if (cost.year === targetYear && cost.month === targetMonth) {
+          total += convertCurrency(cost.amount, cost.currency, displayCurrency, rates)
+        }
+      }
+    }
+    return total
+  }, [costs, displayCurrency, rates])
+
+  const costForPeriod = useMemo(
+    () => getCostsForMonth(selectedYear, selectedMonth),
+    [getCostsForMonth, selectedYear, selectedMonth]
+  )
 
   // Month navigation handlers
   const handlePrevMonth = () => {
@@ -231,7 +257,7 @@ export default function ReportPage({
   }
 
   // All employees view
-  const isLoading = loadingAll || incomeLoading
+  const isLoading = loadingAll || incomeLoading || costsLoading
 
   return (
     <div className="space-y-6">
@@ -259,6 +285,7 @@ export default function ReportPage({
           <ReportKpiGrid
             totalIncome={incomeForPeriod.total}
             totalExpenses={salaryTotals.totalAdjusted}
+            totalCosts={costForPeriod}
             displayCurrency={displayCurrency}
             monthLabel={monthLabel}
           />
@@ -267,6 +294,7 @@ export default function ReportPage({
           <ReportBreakdownCards
             income={incomeForPeriod}
             expenses={salaryTotals}
+            totalCosts={costForPeriod}
             displayCurrency={displayCurrency}
           />
 
@@ -277,6 +305,8 @@ export default function ReportPage({
             iapRevenue={iapRevenue}
             employees={validEmployees}
             getEmployeeReports={getEmployeeReportsForMonth}
+            costs={costs}
+            getCostsForMonth={getCostsForMonth}
             displayCurrency={displayCurrency}
             rates={rates}
             currentYear={selectedYear}

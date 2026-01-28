@@ -98,8 +98,35 @@ export interface CurrencyRateInput {
   rate: number
 }
 
+// Cost types
+export interface Cost {
+  id: number
+  name: string
+  category: string
+  amount: number
+  currency: Currency
+  year: number
+  month: number
+  is_recurring: boolean
+  is_active: boolean
+  notes: string | null
+  created_at: string
+}
+
+export interface CostInput {
+  name: string
+  category: string
+  amount: number
+  currency: Currency
+  year: number
+  month: number
+  is_recurring: boolean
+  is_active?: boolean
+  notes?: string
+}
+
 // Navigation types
-export type View = 'employees' | 'attendance' | 'salaries' | 'reports' | 'income'
+export type View = 'employees' | 'attendance' | 'salaries' | 'reports' | 'income' | 'costs'
 
 // Income types
 export type Platform = 'ios' | 'android'
@@ -212,6 +239,13 @@ export interface ElectronAPI {
     getIapRevenue: (year?: number) => Promise<IapRevenue[]>
     setIapRevenue: (revenue: IapRevenueInput) => Promise<IapRevenue>
     deleteIapRevenue: (id: number) => Promise<boolean>
+  }
+  costs: {
+    getAll: () => Promise<Cost[]>
+    getCategories: () => Promise<string[]>
+    create: (cost: CostInput) => Promise<Cost>
+    update: (id: number, cost: Partial<CostInput>) => Promise<Cost | undefined>
+    delete: (id: number) => Promise<boolean>
   }
 }
 

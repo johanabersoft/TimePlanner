@@ -18,12 +18,14 @@ interface ExpenseBreakdown {
 interface ReportBreakdownCardsProps {
   income: IncomeBreakdown
   expenses: ExpenseBreakdown
+  totalCosts: number
   displayCurrency: Currency
 }
 
 export default function ReportBreakdownCards({
   income,
   expenses,
+  totalCosts,
   displayCurrency
 }: ReportBreakdownCardsProps) {
   // Calculate percentages for income breakdown
@@ -101,18 +103,27 @@ export default function ReportBreakdownCards({
               <span className="text-sm text-gray-400">0</span>
             )}
           </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-3 h-3 bg-rose-500 rounded-sm"></span>
+              <span className="text-sm text-gray-600">Operating Costs</span>
+            </div>
+            <span className="text-sm font-medium text-rose-600">
+              {formatCurrency(totalCosts, displayCurrency)}
+            </span>
+          </div>
         </div>
         <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
-          <span className="text-sm font-medium text-gray-700">Adjusted Total</span>
+          <span className="text-sm font-medium text-gray-700">Total Expenses</span>
           <span className="text-lg font-semibold text-red-600">
-            {formatCurrency(expenses.totalAdjusted, displayCurrency)}
+            {formatCurrency(expenses.totalAdjusted + totalCosts, displayCurrency)}
           </span>
         </div>
         <p className="mt-3 text-xs text-gray-400 flex items-center gap-1">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          Adjusted = salary after sick day deductions
+          Salary after sick deductions + operating costs
         </p>
       </div>
     </div>

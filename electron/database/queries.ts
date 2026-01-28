@@ -798,3 +798,123 @@ export async function deleteIapRevenue(id: number): Promise<boolean> {
   if (error) throw error
   return true
 }
+
+// ============================================
+// Cost Queries
+// ============================================
+
+interface Cost {
+  id: number
+  name: string
+  category: string
+  amount: number
+  currency: string
+  year: number
+  month: number
+  is_recurring: boolean
+  is_active: boolean
+  notes: string | null
+  created_at: string
+}
+
+export async function getAllCosts(): Promise<Cost[]> {
+  const supabase = getSupabase()
+  const { data, error } = await supabase
+    .from('costs')
+    .select('*')
+    .order('year', { ascending: false })
+    .order('month', { ascending: false })
+    .order('name')
+
+  if (error) throw error
+  return data || []
+}
+
+export async function getCostCategories(): Promise<string[]> {
+  const supabase = getSupabase()
+  const { data, error } = await supabase
+    .from('costs')
+    .select('category')
+
+  if (error) throw error
+
+  const categories = [...new Set((data || []).map((r: { category: string }) => r.category))]
+  return categories.sort()
+}
+
+export async function createCost(
+  cost: Omit<Cost, 'id' | 'created_at'>
+): Promise<Cost> {
+  const supabase = getSupabase()
+  const { data, error } = await supabase
+    .from('costs')
+    .insert({
+      name: cost.name,
+      category: cost.category,
+      amount: cost.amount,
+      currency: cost.currency,
+      year: cost.year,
+      month: cost.month,
+      is_recurring: cost.is_recurring,
+      is_active: cost.is_active ?? true,
+      notes: cost.notes || null
+    })
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export async function updateCost(
+  id: number,
+  cost: Partial<Omit<Cost, 'id' | 'created_at'>>
+): Promise<Cost | undefined> {
+  const supabase = getSupabase()
+
+  const updateData: Record<string, unknown> = {}
+  if (cost.name !== undefined) updateData.name = cost.name
+  if (cost.category !== undefined) updateData.category = cost.category
+  if (cost.amount !== undefined) updateData.amount = cost.amount
+  if (cost.currency !== undefined) updateData.currency = cost.currency
+  if (cost.year !== undefined) updateData.year = cost.year
+  if (cost.month !== undefined) updateData.month = cost.month
+  if (cost.is_recurring !== undefined) updateData.is_recurring = cost.is_recurring
+  if (cost.is_active !== undefined) updateData.is_active = cost.is_active
+  if (cost.notes !== undefined) updateData.notes = cost.notes || null
+
+  if (Object.keys(updateData).length === 0) {
+    const { data } = await supabase.from('costs').select('*').eq('id', id).single()
+    return data || undefined
+  }
+
+  const { data, error } = await supabase
+    .from('costs')
+    .update(updateData)
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error && error.code !== 'PGRST116') throw error
+  return data || undefined
+}
+
+export async function deleteCost(id: number): Promise<boolean> {
+  const supabase = getSupabase()
+
+  const { data: existing } = await supabase
+    .from('costs')
+    .select('id')
+    .eq('id', id)
+    .single()
+
+  if (!existing) return false
+
+  const { error } = await supabase
+    .from('costs')
+    .delete()
+    .eq('id', id)
+
+  if (error) throw error
+  return true
+}

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Currency, CurrencyRate, ConsultantContract, AdRevenue, IapRevenue, Employee, SmartAttendanceReport } from '../../types'
+import { Currency, CurrencyRate, ConsultantContract, AdRevenue, IapRevenue, Cost, Employee, SmartAttendanceReport } from '../../types'
 import { convertCurrency, formatCurrency } from '../../utils/currency'
 import { calculateSalaryDeduction } from '../../utils/salary'
 
@@ -9,6 +9,8 @@ interface ReportChartProps {
   iapRevenue: IapRevenue[]
   employees: Employee[]
   getEmployeeReports: (year: number, month: number) => Map<number, SmartAttendanceReport>
+  costs: Cost[]
+  getCostsForMonth: (year: number, month: number) => number
   displayCurrency: Currency
   rates: CurrencyRate[]
   currentYear: number
@@ -31,6 +33,8 @@ export default function ReportChart({
   iapRevenue,
   employees,
   getEmployeeReports,
+  costs,
+  getCostsForMonth,
   displayCurrency,
   rates,
   currentYear,
@@ -62,7 +66,7 @@ export default function ReportChart({
 
       const income = consultantTotal + adTotal + iapTotal
 
-      // Calculate expenses for this month
+      // Calculate expenses for this month (salaries + operating costs)
       const reports = getEmployeeReports(targetYear, targetMonth)
       let expenses = 0
       employees.forEach(emp => {
@@ -73,6 +77,7 @@ export default function ReportChart({
           : { adjustedSalary: convertedSalary }
         expenses += deduction.adjustedSalary
       })
+      expenses += getCostsForMonth(targetYear, targetMonth)
 
       data.push({
         month: MONTH_ABBR[targetMonth - 1],
@@ -84,7 +89,7 @@ export default function ReportChart({
     }
 
     return data
-  }, [contracts, adRevenue, iapRevenue, employees, getEmployeeReports, displayCurrency, rates, currentYear, currentMonth])
+  }, [contracts, adRevenue, iapRevenue, employees, getEmployeeReports, costs, getCostsForMonth, displayCurrency, rates, currentYear, currentMonth])
 
   // Calculate max value for scaling
   const maxValue = useMemo(() => {

@@ -4,6 +4,7 @@ import { formatCurrency } from '../../utils/currency'
 interface ReportKpiGridProps {
   totalIncome: number
   totalExpenses: number
+  totalCosts: number
   displayCurrency: Currency
   monthLabel: string
 }
@@ -11,10 +12,12 @@ interface ReportKpiGridProps {
 export default function ReportKpiGrid({
   totalIncome,
   totalExpenses,
+  totalCosts,
   displayCurrency,
   monthLabel
 }: ReportKpiGridProps) {
-  const netAmount = totalIncome - totalExpenses
+  const allExpenses = totalExpenses + totalCosts
+  const netAmount = totalIncome - allExpenses
   const isProfit = netAmount >= 0
 
   return (
@@ -43,7 +46,7 @@ export default function ReportKpiGrid({
           <div>
             <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Total Expenses</p>
             <p className="text-2xl font-semibold text-gray-900 mt-2">
-              {formatCurrency(totalExpenses, displayCurrency)}
+              {formatCurrency(allExpenses, displayCurrency)}
             </p>
           </div>
           <div className="p-2 bg-red-100 rounded-lg">
@@ -52,7 +55,7 @@ export default function ReportKpiGrid({
             </svg>
           </div>
         </div>
-        <p className="text-xs text-gray-400 mt-2">Adjusted salary (after sick deductions)</p>
+        <p className="text-xs text-gray-400 mt-2">Salaries & operating costs</p>
       </div>
 
       {/* Net Profit/Loss - Hero Card */}

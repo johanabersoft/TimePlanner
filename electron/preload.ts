@@ -104,5 +104,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
       currency: string
     }) => ipcRenderer.invoke('income:setIapRevenue', revenue),
     deleteIapRevenue: (id: number) => ipcRenderer.invoke('income:deleteIapRevenue', id)
+  },
+
+  // Cost operations
+  costs: {
+    getAll: () => ipcRenderer.invoke('costs:getAll'),
+    getCategories: () => ipcRenderer.invoke('costs:getCategories'),
+    create: (cost: {
+      name: string
+      category: string
+      amount: number
+      currency: string
+      year: number
+      month: number
+      is_recurring: boolean
+      is_active?: boolean
+      notes?: string
+    }) => ipcRenderer.invoke('costs:create', cost),
+    update: (id: number, cost: {
+      name?: string
+      category?: string
+      amount?: number
+      currency?: string
+      year?: number
+      month?: number
+      is_recurring?: boolean
+      is_active?: boolean
+      notes?: string
+    }) => ipcRenderer.invoke('costs:update', id, cost),
+    delete: (id: number) => ipcRenderer.invoke('costs:delete', id)
   }
 })
